@@ -13,19 +13,48 @@ services:
     networks:
       - devmesh
 
-  # Docker-in-Docker for future runtime tests (M2); not used by tests yet.
+  # Docker-in-Docker: the only engine tests ever talk to, so the host's Docker
+  # daemon is never touched. Private network; it does not need devmesh.
   dind:
     image: docker:28-dind
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: ""
+    command: ["--tls=false", "--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
     networks:
-      - devmesh
+      - testnet
+
+  # Runs the full suite (including the Docker integration tests) against dind:
+  #   docker compose run --rm test
+  test:
+    image: golang:1.26.2-bookworm
+    profiles: ["test"]  # not started by a bare `docker compose up`
+    working_dir: /src
+    command: ["go", "test", "-race", "-count=1", "./..."]
+    environment:
+      KI_TEST_DOCKER_HOST: tcp://dind:2375
+      GOCACHE: /go-cache/build
+      GOMODCACHE: /go-cache/mod
+    volumes:
+      - .:/src
+      - go-cache:/go-cache
+    depends_on:
+      dind:
+        condition: service_healthy
+    networks:
+      - testnet
 
 volumes:
   ki-agent-data:
   ki-agent-run:
+  go-cache:
 
 networks:
   devmesh:
     external: true
+  testnet:
