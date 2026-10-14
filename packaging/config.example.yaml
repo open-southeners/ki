@@ -2,7 +2,7 @@
 # Every key is optional; the values shown are the defaults.
 # Each key can also be overridden by an environment variable named
 # KI_<KEY PATH IN UPPER CASE>, e.g. KI_DATA_DIR, KI_SOCKET_PATH,
-# KI_WEBSOCKET_TOKEN_FILE, KI_DOCKER_HOST.
+# KI_WEBSOCKET_TOKEN_FILE, KI_DOCKER_HOST, KI_CONTROL_PLANE_URL.
 
 # Directory for all agent state; the only path the agent writes to.
 data_dir: /var/lib/ki-agent
@@ -39,3 +39,25 @@ websocket:
 docker:
   # unix:// or tcp:// endpoint.
   host: unix:///var/run/docker.sock
+
+# Optional outbound connection to a control plane. The agent dials out and
+# reconnects with exponential backoff, so no inbound port needs to be open.
+control_plane:
+  # WebSocket URL of the control plane. Empty (default) disables the connection.
+  # wss:// is required; ws:// is accepted only for loopback hosts.
+  # When set, token_file is required.
+  url: ""
+  # File containing the bearer token the agent presents to the control plane.
+  # Must exist and be non-empty.
+  token_file: ""
+  # Optional PEM file with extra CA certificates, added to the system roots.
+  ca_file: ""
+  # How often the agent pings the control plane.
+  heartbeat_interval: 15s
+  # The connection is dropped and re-established if no pong arrives within
+  # this time. Must be greater than heartbeat_interval.
+  heartbeat_timeout: 45s
+  # Initial delay before reconnecting; doubles on each failed attempt.
+  reconnect_min: 1s
+  # Upper bound for the reconnect delay. Must be at least reconnect_min.
+  reconnect_max: 60s

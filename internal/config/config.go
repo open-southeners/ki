@@ -3,11 +3,15 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -78,6 +82,105 @@ func (w WebSocket) Token() (string, error) {
 	return t, nil
 }
 
+// ControlPlane configures the optional outbound connection to a control plane.
+type ControlPlane struct {
+	// URL is the ws:// or wss:// endpoint to connect to; empty disables the
+	// connection. ws:// is only accepted for loopback hosts.
+	URL string `yaml:"url"`
+	// TokenFile holds the bearer token; required when URL is set.
+	TokenFile string `yaml:"token_file"`
+	// CAFile is an optional PEM bundle trusted in addition to the system roots.
+	CAFile            string        `yaml:"ca_file"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
+	HeartbeatTimeout  time.Duration `yaml:"heartbeat_timeout"`
+	ReconnectMin      time.Duration `yaml:"reconnect_min"`
+	ReconnectMax      time.Duration `yaml:"reconnect_max"`
+}
+
+// Enabled reports whether the outbound connection is configured.
+func (c ControlPlane) Enabled() bool { return c.URL != "" }
+
+// Token reads the bearer token from TokenFile and trims surrounding whitespace.
+func (c ControlPlane) Token() (string, error) {
+	if c.TokenFile == "" {
+		return "", errors.New("control_plane.token_file is not set")
+	}
+	b, err := os.ReadFile(c.TokenFile)
+	if err != nil {
+		return "", fmt.Errorf("read control plane token file: %w", err)
+	}
+	t := strings.TrimSpace(string(b))
+	if t == "" {
+		return "", fmt.Errorf("control plane token file %s is empty", c.TokenFile)
+	}
+	return t, nil
+}
+
+// TLSConfig returns the client TLS settings: the system roots plus CAFile (if
+// set), TLS 1.2 or newer.
+func (c ControlPlane) TLSConfig() (*tls.Config, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if c.CAFile != "" {
+		pem, err := os.ReadFile(c.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read control plane ca file: %w", err)
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("control plane ca file %s contains no PEM certificates", c.CAFile)
+		}
+	}
+	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+}
+
+func (c ControlPlane) validate() error {
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		return errors.New("control_plane.url is not a valid URL")
+	}
+	switch u.Scheme {
+	case "wss":
+	case "ws":
+		if !isLoopbackHost(u.Hostname()) {
+			return fmt.Errorf("control_plane.url must use wss:// unless the host is loopback (got ws:// to %q)", u.Hostname())
+		}
+	default:
+		return fmt.Errorf("control_plane.url scheme %q is not supported: want wss:// (or ws:// for loopback)", u.Scheme)
+	}
+	if u.Hostname() == "" {
+		return errors.New("control_plane.url must include a host")
+	}
+	if c.HeartbeatInterval <= 0 {
+		return errors.New("control_plane.heartbeat_interval must be positive")
+	}
+	if c.HeartbeatTimeout <= c.HeartbeatInterval {
+		return errors.New("control_plane.heartbeat_timeout must be greater than control_plane.heartbeat_interval")
+	}
+	if c.ReconnectMin <= 0 {
+		return errors.New("control_plane.reconnect_min must be positive")
+	}
+	if c.ReconnectMin > c.ReconnectMax {
+		return errors.New("control_plane.reconnect_min must not exceed control_plane.reconnect_max")
+	}
+	if _, err := c.Token(); err != nil {
+		return fmt.Errorf("control plane enabled but %w", err)
+	}
+	if _, err := c.TLSConfig(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func isLoopbackHost(h string) bool {
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
 // Docker configures the container engine connection.
 type Docker struct {
 	// Host is the engine endpoint (unix:// or tcp://). The agent starts even
@@ -92,6 +195,8 @@ type Config struct {
 	Socket    Socket    `yaml:"socket"`
 	WebSocket WebSocket `yaml:"websocket"`
 	Docker    Docker    `yaml:"docker"`
+
+	ControlPlane ControlPlane `yaml:"control_plane"`
 }
 
 // Default returns the configuration used when nothing is configured.
@@ -105,6 +210,12 @@ func Default() Config {
 			Path:              "/rpc",
 			HeartbeatInterval: 15 * time.Second,
 			HeartbeatTimeout:  45 * time.Second,
+		},
+		ControlPlane: ControlPlane{
+			HeartbeatInterval: 15 * time.Second,
+			HeartbeatTimeout:  45 * time.Second,
+			ReconnectMin:      time.Second,
+			ReconnectMax:      time.Minute,
 		},
 	}
 }
@@ -176,7 +287,23 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 	if err := dur("KI_WEBSOCKET_HEARTBEAT_INTERVAL", &cfg.WebSocket.HeartbeatInterval); err != nil {
 		return err
 	}
-	return dur("KI_WEBSOCKET_HEARTBEAT_TIMEOUT", &cfg.WebSocket.HeartbeatTimeout)
+	if err := dur("KI_WEBSOCKET_HEARTBEAT_TIMEOUT", &cfg.WebSocket.HeartbeatTimeout); err != nil {
+		return err
+	}
+	str("KI_CONTROL_PLANE_URL", &cfg.ControlPlane.URL)
+	str("KI_CONTROL_PLANE_TOKEN_FILE", &cfg.ControlPlane.TokenFile)
+	str("KI_CONTROL_PLANE_CA_FILE", &cfg.ControlPlane.CAFile)
+	for key, dst := range map[string]*time.Duration{
+		"KI_CONTROL_PLANE_HEARTBEAT_INTERVAL": &cfg.ControlPlane.HeartbeatInterval,
+		"KI_CONTROL_PLANE_HEARTBEAT_TIMEOUT":  &cfg.ControlPlane.HeartbeatTimeout,
+		"KI_CONTROL_PLANE_RECONNECT_MIN":      &cfg.ControlPlane.ReconnectMin,
+		"KI_CONTROL_PLANE_RECONNECT_MAX":      &cfg.ControlPlane.ReconnectMax,
+	} {
+		if err := dur(key, dst); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Validate checks the configuration for unusable values. A WebSocket listener
@@ -194,6 +321,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Docker.Host == "" {
 		return errors.New("docker.host must not be empty")
+	}
+	if c.ControlPlane.Enabled() {
+		if err := c.ControlPlane.validate(); err != nil {
+			return err
+		}
 	}
 	if !c.WebSocket.Enabled() {
 		return nil

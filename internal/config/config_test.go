@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,5 +144,99 @@ func TestParseLogLevel(t *testing.T) {
 	}
 	if _, err := ParseLogLevel("nope"); err == nil {
 		t.Error("expected error")
+	}
+}
+
+func TestControlPlaneLoadAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	tok := write(t, dir, "token", " abc \n")
+	yml := write(t, dir, "c.yaml", `
+control_plane:
+  url: wss://cp.example.com/agent
+  token_file: `+tok+`
+  reconnect_min: 2s
+  reconnect_max: 30s
+`)
+	cfg, err := LoadWithEnv(yml, envMap(map[string]string{"KI_CONTROL_PLANE_HEARTBEAT_INTERVAL": "5s"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp := cfg.ControlPlane
+	if !cp.Enabled() || cp.URL != "wss://cp.example.com/agent" || cp.ReconnectMin != 2*time.Second ||
+		cp.ReconnectMax != 30*time.Second || cp.HeartbeatInterval != 5*time.Second ||
+		cp.HeartbeatTimeout != 45*time.Second {
+		t.Fatalf("unexpected control plane config: %+v", cp)
+	}
+	if got, err := cp.Token(); err != nil || got != "abc" {
+		t.Fatalf("Token() = %q, %v", got, err)
+	}
+	tc, err := cp.TLSConfig()
+	if err != nil || tc.MinVersion != tls.VersionTLS12 || tc.RootCAs == nil {
+		t.Fatalf("TLSConfig() = %+v, %v", tc, err)
+	}
+
+	env := envMap(map[string]string{
+		"KI_CONTROL_PLANE_URL":        "ws://localhost:1/x",
+		"KI_CONTROL_PLANE_TOKEN_FILE": tok,
+	})
+	cfg, err = LoadWithEnv(filepath.Join(dir, "none.yaml"), env)
+	if err != nil || cfg.ControlPlane.URL != "ws://localhost:1/x" {
+		t.Fatalf("env load: %+v, %v", cfg, err)
+	}
+}
+
+func TestControlPlaneDisabledByDefault(t *testing.T) {
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "none.yaml"), noEnv)
+	if err != nil || cfg.ControlPlane.Enabled() {
+		t.Fatalf("cfg = %+v, err = %v", cfg.ControlPlane, err)
+	}
+}
+
+func TestControlPlaneValidation(t *testing.T) {
+	dir := t.TempDir()
+	tok := write(t, dir, "token", "abc")
+	empty := write(t, dir, "empty", "\n")
+	badCA := write(t, dir, "bad.pem", "not pem")
+	base := func() Config {
+		c := Default()
+		c.ControlPlane.URL = "wss://cp.example.com/agent"
+		c.ControlPlane.TokenFile = tok
+		return c
+	}
+	tests := []struct {
+		name string
+		mod  func(*Config)
+		want string // empty = valid
+	}{
+		{"ok wss", func(*Config) {}, ""},
+		{"ok ws localhost", func(c *Config) { c.ControlPlane.URL = "ws://localhost:8080/a" }, ""},
+		{"ok ws v4 loopback", func(c *Config) { c.ControlPlane.URL = "ws://127.0.0.1:8080/a" }, ""},
+		{"ok ws v6 loopback", func(c *Config) { c.ControlPlane.URL = "ws://[::1]:8080/a" }, ""},
+		{"ws non-loopback", func(c *Config) { c.ControlPlane.URL = "ws://cp.example.com/a" }, "wss://"},
+		{"ws private ip", func(c *Config) { c.ControlPlane.URL = "ws://10.0.0.1/a" }, "wss://"},
+		{"http scheme", func(c *Config) { c.ControlPlane.URL = "https://cp.example.com/a" }, "scheme"},
+		{"no host", func(c *Config) { c.ControlPlane.URL = "wss:///a" }, "host"},
+		{"no token file", func(c *Config) { c.ControlPlane.TokenFile = "" }, "token_file"},
+		{"empty token", func(c *Config) { c.ControlPlane.TokenFile = empty }, "empty"},
+		{"min > max", func(c *Config) { c.ControlPlane.ReconnectMin = time.Hour }, "reconnect_min"},
+		{"timeout <= interval", func(c *Config) { c.ControlPlane.HeartbeatTimeout = c.ControlPlane.HeartbeatInterval }, "heartbeat_timeout"},
+		{"missing ca", func(c *Config) { c.ControlPlane.CAFile = filepath.Join(dir, "nope.pem") }, "ca file"},
+		{"garbage ca", func(c *Config) { c.ControlPlane.CAFile = badCA }, "no PEM"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := base()
+			tt.mod(&c)
+			err := c.Validate()
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want containing %q", err, tt.want)
+			}
+		})
 	}
 }
