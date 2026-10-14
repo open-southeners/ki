@@ -1,0 +1,14 @@
+/.claude/plans/
+
+# Build output
+/ki-agent
+/dist/
+*.test
+*.out
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
