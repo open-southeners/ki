@@ -1,0 +1,22 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "cap_add": [
+        "SYS_ADMIN"
+      ],
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

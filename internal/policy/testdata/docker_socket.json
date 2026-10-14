@@ -1,0 +1,27 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "@ROOT@/run/docker.sock",
+          "target": "/var/run/docker.sock",
+          "bind": {}
+        }
+      ]
+    }
+  }
+}

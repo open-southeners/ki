@@ -1,0 +1,12 @@
+name: t
+services:
+  a:
+    image: x
+    volumes: [escape:/mnt]
+volumes:
+  escape:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/other

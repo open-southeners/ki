@@ -1,0 +1,38 @@
+name: shop
+services:
+  web:
+    image: nginx:1.27
+    build:
+      context: ./web
+    env_file: [app.env]
+    cap_add: [NET_BIND_SERVICE]
+    sysctls:
+      net.core.somaxconn: 1024
+    ports: ["8080:80"]
+    networks: [front]
+    configs: [nginx_conf]
+    secrets: [db_password]
+    volumes:
+      - ./data:/usr/share/nginx/data
+      - ./site/../static:/usr/share/nginx/static:ro
+      - cache:/var/cache/nginx
+      - type: tmpfs
+        target: /tmp
+  db:
+    image: postgres:16
+    network_mode: "service:web"
+    security_opt: ["no-new-privileges=true"]
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+volumes:
+  dbdata: {}
+  cache:
+    driver: local
+networks:
+  front: {}
+configs:
+  nginx_conf:
+    file: ./nginx.conf
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt

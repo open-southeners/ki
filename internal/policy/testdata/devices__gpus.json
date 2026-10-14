@@ -1,0 +1,24 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "gpus": [
+        {
+          "count": -1
+        }
+      ],
+      "image": "x",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      },
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "plug",
+          "target": "/mnt",
+          "volume": {}
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "plug": {
+      "name": "t_plug",
+      "driver": "some-plugin"
+    }
+  }
+}

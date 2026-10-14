@@ -1,0 +1,23 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "build": {
+        "context": "@ROOT@/../elsewhere",
+        "dockerfile": "Dockerfile"
+      },
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "device_cgroup_rules": [
+        "c 1:3 mr"
+      ],
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

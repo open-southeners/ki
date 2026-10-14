@@ -1,0 +1,8 @@
+name: t
+services:
+  a:
+    image: x
+    volumes: [plug:/mnt]
+volumes:
+  plug:
+    driver: some-plugin

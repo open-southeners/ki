@@ -1,0 +1,123 @@
+{
+  "configs": {
+    "nginx_conf": {
+      "name": "shop_nginx_conf",
+      "file": "@ROOT@/nginx.conf"
+    }
+  },
+  "name": "shop",
+  "networks": {
+    "front": {
+      "name": "shop_front",
+      "ipam": {}
+    }
+  },
+  "secrets": {
+    "db_password": {
+      "name": "shop_db_password",
+      "file": "@ROOT@/secrets/db_password.txt"
+    }
+  },
+  "services": {
+    "db": {
+      "command": null,
+      "depends_on": {
+        "web": {
+          "condition": "service_started",
+          "restart": true,
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "image": "postgres:16",
+      "network_mode": "service:web",
+      "security_opt": [
+        "no-new-privileges=true"
+      ],
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "dbdata",
+          "target": "/var/lib/postgresql/data",
+          "volume": {}
+        }
+      ]
+    },
+    "web": {
+      "build": {
+        "context": "@ROOT@/web",
+        "dockerfile": "Dockerfile"
+      },
+      "cap_add": [
+        "NET_BIND_SERVICE"
+      ],
+      "command": null,
+      "configs": [
+        {
+          "source": "nginx_conf"
+        }
+      ],
+      "entrypoint": null,
+      "env_file": [
+        {
+          "path": "@ROOT@/app.env"
+        }
+      ],
+      "image": "nginx:1.27",
+      "networks": {
+        "front": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "target": 80,
+          "published": "8080",
+          "protocol": "tcp"
+        }
+      ],
+      "secrets": [
+        {
+          "source": "db_password",
+          "target": "/run/secrets/db_password"
+        }
+      ],
+      "sysctls": {
+        "net.core.somaxconn": "1024"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "@ROOT@/data",
+          "target": "/usr/share/nginx/data",
+          "bind": {}
+        },
+        {
+          "type": "bind",
+          "source": "@ROOT@/static",
+          "target": "/usr/share/nginx/static",
+          "read_only": true,
+          "bind": {}
+        },
+        {
+          "type": "volume",
+          "source": "cache",
+          "target": "/var/cache/nginx",
+          "volume": {}
+        },
+        {
+          "type": "tmpfs",
+          "target": "/tmp"
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "cache": {
+      "name": "shop_cache",
+      "driver": "local"
+    },
+    "dbdata": {
+      "name": "shop_dbdata"
+    }
+  }
+}

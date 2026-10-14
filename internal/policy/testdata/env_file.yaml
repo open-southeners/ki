@@ -1,0 +1,5 @@
+name: t
+services:
+  a:
+    image: x
+    env_file: [/etc/hostname]

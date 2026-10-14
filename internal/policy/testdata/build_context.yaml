@@ -1,0 +1,6 @@
+name: t
+services:
+  a:
+    image: x
+    build:
+      context: ../elsewhere

@@ -1,0 +1,3 @@
+name: t
+services:
+  a: {image: x, cap_add: [SYS_ADMIN]}

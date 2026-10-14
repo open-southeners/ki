@@ -1,0 +1,22 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      },
+      "security_opt": [
+        "seccomp=unconfined"
+      ]
+    }
+  }
+}

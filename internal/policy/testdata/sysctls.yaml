@@ -1,0 +1,6 @@
+name: t
+services:
+  a:
+    image: x
+    sysctls:
+      kernel.shmmax: 1024

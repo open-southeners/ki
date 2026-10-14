@@ -1,0 +1,35 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "deploy": {
+        "resources": {
+          "reservations": {
+            "devices": [
+              {
+                "capabilities": [
+                  "gpu"
+                ],
+                "driver": "nvidia",
+                "count": 1
+              }
+            ]
+          }
+        },
+        "placement": {}
+      },
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

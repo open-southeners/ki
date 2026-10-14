@@ -1,0 +1,4 @@
+name: t
+services:
+  a: {image: x, volumes_from: [b]}
+  b: {image: y}

@@ -1,0 +1,30 @@
+{
+  "configs": {
+    "c": {
+      "name": "t_c",
+      "file": "/etc/hostname"
+    }
+  },
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "configs": [
+        {
+          "source": "c"
+        }
+      ],
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

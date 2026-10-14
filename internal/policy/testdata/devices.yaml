@@ -1,0 +1,5 @@
+name: t
+services:
+  a:
+    image: x
+    devices: ["/dev/sda:/dev/xvda:rwm"]

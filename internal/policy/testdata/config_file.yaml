@@ -1,0 +1,8 @@
+name: t
+services:
+  a:
+    image: x
+    configs: [c]
+configs:
+  c:
+    file: /etc/hostname

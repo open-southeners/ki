@@ -1,0 +1,11 @@
+name: t
+services:
+  a:
+    image: x
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

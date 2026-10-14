@@ -1,0 +1,8 @@
+name: t
+services:
+  a:
+    image: x
+    volumes: [shared:/mnt]
+volumes:
+  shared:
+    external: true

@@ -1,0 +1,6 @@
+name: t
+services:
+  a:
+    image: x
+    volumes:
+      - ./run/docker.sock:/var/run/docker.sock

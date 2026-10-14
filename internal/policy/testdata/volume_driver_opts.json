@@ -1,0 +1,38 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      },
+      "volumes": [
+        {
+          "type": "volume",
+          "source": "escape",
+          "target": "/mnt",
+          "volume": {}
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "escape": {
+      "name": "t_escape",
+      "driver": "local",
+      "driver_opts": {
+        "device": "/opt/other",
+        "o": "bind",
+        "type": "none"
+      }
+    }
+  }
+}

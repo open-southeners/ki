@@ -1,0 +1,36 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "depends_on": {
+        "b": {
+          "condition": "service_started",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "image": "x",
+      "networks": {
+        "default": null
+      },
+      "volumes_from": [
+        "b"
+      ]
+    },
+    "b": {
+      "command": null,
+      "entrypoint": null,
+      "image": "y",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

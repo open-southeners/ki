@@ -1,0 +1,7 @@
+name: t
+services:
+  a:
+    image: x
+    volumes:
+      - /etc:/host-etc:ro
+      - ../sibling:/sibling

@@ -1,0 +1,11 @@
+{
+  "name": "t",
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "network_mode": "host"
+    }
+  }
+}
