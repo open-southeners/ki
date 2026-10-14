@@ -144,3 +144,55 @@ func TestHeartbeatHealthyPeerSurvives(t *testing.T) {
 		t.Fatalf("got %q err %v", got, err)
 	}
 }
+
+func TestDialWithSendsHeadersAndExposesRejection(t *testing.T) {
+	got := make(chan http.Header, 1)
+	s := serve(t, Options{Token: "t"}, echo)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Clone()
+		s.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer proxy.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, resp, err := DialWith(ctx, proxy.URL, DialOptions{Token: "t", Header: http.Header{"X-Test": {"1"}}})
+	if err != nil || resp == nil {
+		t.Fatalf("DialWith = %v, %v", resp, err)
+	}
+	defer c.Close()
+	if h := <-got; h.Get("Authorization") != "Bearer t" || h.Get("X-Test") != "1" {
+		t.Fatalf("headers = %v", h)
+	}
+
+	_, resp, err = DialWith(ctx, s.URL, DialOptions{Token: "wrong"})
+	if err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("want 401 response with error, got %v, %v", resp, err)
+	}
+}
+
+// With a client heartbeat, a server that never reads (so never pongs) is
+// dropped and the pending Read fails.
+func TestDialWithHeartbeatDropsDeadServer(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wc, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer wc.CloseNow()
+		<-r.Context().Done()
+		time.Sleep(time.Second)
+	}))
+	defer s.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, _, err := DialWith(ctx, s.URL, DialOptions{HeartbeatInterval: 20 * time.Millisecond, HeartbeatTimeout: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Read(ctx); err == nil || ctx.Err() != nil {
+		t.Fatalf("want read error from heartbeat failure, got %v (ctx %v)", err, ctx.Err())
+	}
+}
