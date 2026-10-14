@@ -185,6 +185,10 @@ type Subscription struct {
 	// deliver is the next seq to emit and may lag behind or be rewound by Replay.
 	ring    []entry
 	deliver uint64
+
+	// finishing makes the pump close the subscription once everything queued
+	// has been delivered (see CloseAfterDrain).
+	finishing bool
 }
 
 func newSubscriptionID() string {
@@ -212,6 +216,17 @@ func (s *Subscription) Done() <-chan struct{} { return s.ctx.Done() }
 func (s *Subscription) Close() {
 	s.cancel()
 	s.mgr.remove(s)
+}
+
+// CloseAfterDrain ends the subscription once every update queued so far has
+// been handed to the connection, so a final update is not lost the way it
+// would be with Close. Updates sent afterwards are still delivered before it
+// closes. It is idempotent.
+func (s *Subscription) CloseAfterDrain() {
+	s.mu.Lock()
+	s.finishing = true
+	s.mu.Unlock()
+	s.signal()
 }
 
 // Send assigns the next sequence number (starting at 1) to payload and queues
@@ -331,6 +346,13 @@ func (s *Subscription) pump() {
 				}
 				return
 			}
+		}
+		s.mu.Lock()
+		finishing := s.finishing
+		s.mu.Unlock()
+		if finishing {
+			s.Close()
+			return
 		}
 	}
 }

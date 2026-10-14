@@ -23,6 +23,9 @@ const (
 	CodeIncompatibleVersion  = -32003
 	CodeSubscriptionNotFound = -32004
 	CodeOverloaded           = -32005
+	CodeNotFound             = -32006
+	CodePolicyViolation      = -32007
+	CodeRuntimeUnavailable   = -32008
 )
 
 // ErrClosed is returned by operations on a Peer that has been closed or whose

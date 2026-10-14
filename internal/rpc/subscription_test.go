@@ -324,3 +324,27 @@ func TestClampInterval(t *testing.T) {
 		}
 	}
 }
+
+func TestCloseAfterDrainDeliversFinalUpdate(t *testing.T) {
+	s, c, p := openSub(t, rpc.Ordered)
+	for i := 1; i <= 3; i++ {
+		if err := s.Send(i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.CloseAfterDrain()
+	s.CloseAfterDrain() // idempotent
+	for i := 1; i <= 3; i++ {
+		if n := readNote(t, c); n.Params.Seq != uint64(i) {
+			t.Fatalf("update %d: seq = %d", i, n.Params.Seq)
+		}
+	}
+	select {
+	case <-s.Done():
+	case <-time.After(timeout):
+		t.Fatal("subscription not closed after drain")
+	}
+	if p.Subs().Len() != 0 {
+		t.Fatal("not removed")
+	}
+}
