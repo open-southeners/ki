@@ -2,6 +2,7 @@
 
 # Build output
 /ki-agent
+/control-plane
 /dist/
 *.test
 *.out

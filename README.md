@@ -70,6 +70,18 @@ websocat -H 'Authorization: Bearer YOUR_TOKEN' ws://127.0.0.1:8443/rpc
 {"jsonrpc":"2.0","id":2,"method":"agent.info"}
 ```
 
+## Connecting to a control plane
+
+Besides serving the Unix socket and the optional WebSocket listener, the agent
+can dial out to a control plane, which suits servers behind NAT or a firewall.
+Set `control_plane.url` (`wss://`, or `ws://` for loopback development) and
+`control_plane.token_file`; the agent then keeps one WebSocket open with
+automatic reconnects, and the control plane drives the normal JSON-RPC API over
+it. The connection rules, subscription semantics, error codes and versioning
+policy are in [`docs/protocol.md`](docs/protocol.md), and
+[`examples/control-plane`](examples/control-plane) is a small runnable control
+plane written against that document alone.
+
 ## Container management
 
 The agent manages Docker containers through these methods (all behind

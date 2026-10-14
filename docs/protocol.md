@@ -1,0 +1,234 @@
+# ki-agent protocol
+
+This document is for people building a control plane (or any other client) that
+talks to ki-agent. The agent does not care what is on the other end, as long as
+it speaks this protocol.
+
+The source of truth for every method, parameter and result schema is the
+OpenRPC document [`api/openrpc.json`](../api/openrpc.json) (also returned by
+`rpc.discover`). This document covers what it cannot: transports, connection
+rules, subscription semantics, errors and versioning. A runnable client lives
+in [`examples/control-plane`](../examples/control-plane).
+
+## Message format
+
+[JSON-RPC 2.0](https://www.jsonrpc.org/specification), UTF-8 JSON, params by
+name (an object). Batches are accepted. Notifications from the agent have no
+`id`. Request ids may be strings, numbers or null; the agent echoes them
+verbatim.
+
+## Transports
+
+All transports carry the same protocol. Both ends are symmetric JSON-RPC
+peers, but the agent API only ever flows client to agent.
+
+| Transport | Who connects | Framing | Auth |
+|---|---|---|---|
+| Unix socket (`socket.path`, default `/run/ki-agent/ki.sock`) | local client to agent | one JSON message per line (`\n`), max 4 MiB per line | file mode |
+| WebSocket listener (`websocket.listen`, `websocket.path`) | control plane to agent | one JSON message per WebSocket text message, max 4 MiB | `Authorization: Bearer <token>` (401 otherwise) |
+| Outbound connection (`control_plane.url`) | **agent to control plane** | as WebSocket listener | bearer token sent by the agent |
+
+The outbound connection exists for agents that cannot be reached from outside
+(NAT, firewalls): the agent dials the control plane, and once the WebSocket is
+up, **the control plane is the JSON-RPC client**. The rest of this document
+applies equally to all three transports unless it says otherwise.
+
+## Outbound connection contract
+
+1. The agent opens **one** WebSocket to `control_plane.url` with the headers
+
+   ```
+   Authorization: Bearer <token>
+   User-Agent: ki-agent/<version>
+   Ki-Protocol: <protocol version, e.g. 1.0.0>
+   ```
+
+   The control plane must reject bad credentials with HTTP 401 or 403 *before*
+   upgrading the connection.
+2. After the upgrade the control plane calls `agent.hello` first (see
+   [Handshake](#handshake)), then any method. The agent sends **no requests of
+   its own** on this connection, only responses and subscription
+   notifications.
+3. Liveness: the agent sends a WebSocket ping every `heartbeat_interval` and
+   drops the connection if no pong arrives within `heartbeat_timeout`. Standard
+   WebSocket libraries answer pings automatically, provided the application
+   keeps reading from the connection.
+4. Reconnect: after a drop the agent retries with exponential backoff from
+   `reconnect_min` to `reconnect_max` with full jitter. The backoff resets once
+   `agent.hello` has succeeded on a connection. After a 401/403 the agent logs
+   an error and retries at `reconnect_max`. **Subscriptions do not survive a
+   reconnect**: the control plane must call `agent.hello` and subscribe again
+   (use `since` for container logs).
+5. Transport security: `wss://` is required. `ws://` is accepted only when the
+   host is a loopback address or `localhost` (development). The server
+   certificate is verified against the system roots plus the optional
+   `control_plane.ca_file` (PEM).
+
+If the control plane wants an agent to go away, it closes the WebSocket; the
+agent reconnects. To stop it for good, change the agent's configuration.
+
+### Configuration
+
+Keys under `control_plane` in the agent's config file; each can be overridden
+by the environment variable `KI_CONTROL_PLANE_<KEY>`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `url` | empty (disabled) | `wss://host/path` (or `ws://127.0.0.1:port/path` for development) |
+| `token_file` | none | File holding the bearer token; required when `url` is set. Same rules as `websocket.token_file` |
+| `ca_file` | none | Extra PEM CA bundle trusted in addition to system roots |
+| `heartbeat_interval` | `15s` | Ping period |
+| `heartbeat_timeout` | `45s` | Drop the connection if no pong in this time; must exceed `heartbeat_interval` |
+| `reconnect_min` | `1s` | First backoff delay |
+| `reconnect_max` | `60s` | Maximum backoff delay; must be at least `reconnect_min` |
+
+The agent refuses to start on a bad scheme, `ws://` to a non-loopback host,
+`reconnect_min` greater than `reconnect_max`, `heartbeat_timeout` not greater
+than `heartbeat_interval`, or an unreadable `ca_file`. The connection state
+(`disabled`, `connecting`, `connected`, `backoff`, last error, reconnect count)
+is reported in `agent.info` under `control_plane`.
+
+## Handshake
+
+Every connection starts with `agent.hello`:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"my-cp","version":"0.1.0"}}}
+```
+
+- `protocol` is the client's protocol version (`MAJOR.MINOR.PATCH`). Only the
+  **major** version must match the agent's; otherwise the agent answers
+  `-32003` with `data.supported` set to its own version and **closes the
+  connection** after the response.
+- The result carries the agent's `protocol`, `agent` (`name`, `version`,
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`).
+- Until `agent.hello` succeeds, every method except `agent.hello` and
+  `rpc.discover` fails with `-32002`.
+
+### Pipelining
+
+You do not have to wait for the `agent.hello` response. The agent handles
+requests in arrival order until the handshake has completed, so requests sent
+right behind `agent.hello` see its effect. After the handshake requests are
+handled concurrently, so **responses may arrive in a different order than the
+requests**: match them by `id`. In the transcript below, `containers.list`
+(id 5) is answered before the slower `agent.heartbeat.subscribe` (id 4).
+
+## Subscriptions
+
+A subscription method (`<ns>.subscribe`) returns `{"subscription": "<id>"}`
+(the heartbeat also returns the applied `interval_ms`). From then on the agent
+sends `<ns>.update` notifications until `<ns>.unsubscribe`, the end of the
+connection, or, for logs, the end of the stream. Unsubscribing an unknown id
+fails with `-32004`.
+
+Every notification has the same params envelope:
+
+```json
+{"subscription":"83a9c71c…","seq":2,"data":{…}}
+{"subscription":"83a9c71c…","seq":7,"gap":{"from":4,"to":7}}
+```
+
+- `seq` starts at 1 and increases for every update of a subscription. **Order
+  updates by `seq`.** Updates of one subscription are written in order over a
+  connection, but `seq` is the authority.
+- Exactly one of `data` and `gap` is present.
+- A `gap` says that updates `from` to `to` (inclusive) were dropped before
+  delivery. For a gap marker, `seq == gap.to`, so the last seq you have seen
+  stays contiguous with the next update.
+- The first update may arrive **before** the response to the subscribe call.
+  Buffer updates for subscription ids you do not know yet.
+- Subscriptions are per connection. They are gone when the connection ends and
+  are never resumed by `seq`.
+
+### Slow consumers
+
+The agent never blocks on a slow connection and keeps memory bounded:
+
+| Kind | Used by | When the consumer cannot keep up |
+|---|---|---|
+| Snapshot (latest wins) | `agent.heartbeat` | Undelivered values are replaced by the newest. `seq` skips numbers; no `gap` marker, no stale data |
+| Ordered (event stream) | `containers.logs` | Updates wait in a per-subscription buffer (1024 entries); if it overflows the oldest are dropped and a `gap` marker covers them |
+
+There is no flow-control request: a consumer that must not lose logs should
+read promptly and, after a gap, re-subscribe with `since` if it needs the
+missing lines.
+
+### Container logs
+
+`containers.logs.subscribe {id, tail?, since?, timestamps?}`:
+
+- `tail` is the number of most recent lines sent first (default 100, values
+  above 10000 are clamped to 10000, negative is `-32602`).
+- `since` is an RFC 3339 timestamp; only newer lines are sent. A malformed
+  value is `-32602`. To resume after a reconnect, enable `timestamps` and pass
+  the time of the last line you received.
+- Updates are `data: {"stream": "stdout"|"stderr", "time"?: …, "text": …}`;
+  `time` is present only with `timestamps: true`.
+- When the container stops (the stream ends), a final update `data: {"eof": true}`
+  arrives and the subscription closes by itself. If the stream failed, the `eof`
+  update also carries an `error` string.
+- Only containers labelled `ki.managed=true` exist as far as the agent is
+  concerned; unmanaged ones answer `-32006`, same as missing ones.
+
+## Errors
+
+Errors are JSON-RPC error objects `{code, message, data?}`.
+
+| Code | Name | Meaning |
+|---|---|---|
+| -32700 | Parse error | Payload is not valid JSON |
+| -32600 | Invalid request | Malformed JSON-RPC request (bad `jsonrpc`, `method`, `id`, `params`, or empty batch) |
+| -32601 | Method not found | Unknown method |
+| -32602 | Invalid params | Params missing or wrong (also a non-semver `protocol` in `agent.hello`) |
+| -32603 | Internal error | Handler failed or panicked |
+| -32001 | Unauthorized | Reserved; authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
+| -32002 | Handshake required | Method called before a successful `agent.hello` |
+| -32003 | Incompatible version | Major version mismatch; `data.supported` is the agent's version; the connection is closed |
+| -32004 | Subscription not found | Unknown subscription id on unsubscribe |
+| -32005 | Overloaded | Reserved; not currently returned |
+| -32006 | Not found | Container does not exist or is not managed by ki |
+| -32007 | Policy violation | Reserved for deploys; `data.violations` lists `{service, rule, detail}` |
+| -32008 | Runtime unavailable | The container engine cannot be reached |
+
+## Versioning
+
+`api.ProtocolVersion` (`info.version` of the OpenRPC document, currently
+`1.0.0`) follows [semantic versioning](https://semver.org/).
+
+- Additive changes (new methods, new optional params, new result fields, new
+  capabilities) bump the **minor** version. Clients must ignore unknown fields
+  in results and notifications.
+- Breaking changes bump the **major** version. `agent.hello` refuses a
+  different major version (`-32003`), so a mismatch is caught on the first
+  message.
+- A client should check `capabilities` rather than guessing from the agent's
+  software version.
+
+## Wire example
+
+Captured from a real agent over its Unix socket (`>` client to agent, `<`
+agent to client). A WebSocket transcript is identical apart from the framing:
+each line is one text message. Container engine was not running, hence
+`-32008`.
+
+```
+> {"jsonrpc":"2.0","id":1,"method":"agent.info"}
+< {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
+> {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers"],"protocol":"1.0.0"}}
+> {"jsonrpc":"2.0","id":3,"method":"agent.info"}
+< {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
+> {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}
+> {"jsonrpc":"2.0","id":5,"method":"containers.list"}
+< {"jsonrpc":"2.0","id":5,"error":{"code":-32008,"message":"container runtime unavailable"}}
+< {"jsonrpc":"2.0","id":4,"result":{"interval_ms":1000,"subscription":"83a9c71c24513e7e7166740efc2335b0"}}
+< {"jsonrpc":"2.0","method":"agent.heartbeat.update","params":{"subscription":"83a9c71c24513e7e7166740efc2335b0","seq":1,"data":{"time":"2026-10-14T17:35:36.072304681Z","uptime_ms":2076}}}
+< {"jsonrpc":"2.0","method":"agent.heartbeat.update","params":{"subscription":"83a9c71c24513e7e7166740efc2335b0","seq":2,"data":{"time":"2026-10-14T17:35:37.072303381Z","uptime_ms":3076}}}
+> {"jsonrpc":"2.0","id":6,"method":"agent.heartbeat.unsubscribe","params":{"subscription":"nope"}}
+< {"jsonrpc":"2.0","id":6,"error":{"code":-32004,"message":"subscription not found"}}
+> {"jsonrpc":"2.0","id":7,"method":"agent.hello","params":{"protocol":"2.0.0"}}
+< {"jsonrpc":"2.0","id":7,"error":{"code":-32003,"message":"incompatible protocol version 2.0.0: agent speaks 1.0.0","data":{"supported":"1.0.0"}}}
+```
+
+After the last response the agent closes the connection.
