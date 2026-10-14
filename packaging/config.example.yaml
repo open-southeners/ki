@@ -1,0 +1,33 @@
+# ki-agent configuration. Copy to /etc/ki-agent/config.yaml.
+# Every key is optional; the values shown are the defaults.
+# Each key can also be overridden by an environment variable named
+# KI_<KEY PATH IN UPPER CASE>, e.g. KI_DATA_DIR, KI_SOCKET_PATH,
+# KI_WEBSOCKET_TOKEN_FILE.
+
+# Directory for all agent state; the only path the agent writes to.
+data_dir: /var/lib/ki-agent
+
+# Log verbosity: debug, info, warn or error. Logs are JSON on stderr.
+log_level: info
+
+# Local Unix socket used by the ki-agent CLI. Access is controlled by file mode.
+socket:
+  path: /run/ki-agent/ki.sock
+  # Octal file mode of the socket.
+  mode: 0660
+
+# Authenticated WebSocket listener for remote control planes.
+websocket:
+  # host:port to listen on. Empty (default) disables the listener.
+  # When set, token_file is required: the agent never serves unauthenticated.
+  listen: ""
+  # HTTP path of the JSON-RPC endpoint.
+  path: /rpc
+  # File containing the bearer token clients must send as
+  # "Authorization: Bearer <token>". Must exist and be non-empty.
+  token_file: ""
+  # How often the agent pings the client.
+  heartbeat_interval: 15s
+  # Connections with no pong within this time are closed.
+  # Must be greater than heartbeat_interval.
+  heartbeat_timeout: 45s

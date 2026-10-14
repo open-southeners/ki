@@ -1,0 +1,31 @@
+# Development stack. Tests and experiments talk to the dind sidecar so the
+# host's Docker daemon is never touched.
+services:
+  ki-agent:
+    build: .
+    environment:
+      KI_DATA_DIR: /var/lib/ki-agent
+      KI_SOCKET_PATH: /run/ki-agent/ki.sock
+      KI_LOG_LEVEL: debug
+    volumes:
+      - ki-agent-data:/var/lib/ki-agent
+      - ki-agent-run:/run/ki-agent
+    networks:
+      - devmesh
+
+  # Docker-in-Docker for future runtime tests (M2); not used by tests yet.
+  dind:
+    image: docker:28-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      - devmesh
+
+volumes:
+  ki-agent-data:
+  ki-agent-run:
+
+networks:
+  devmesh:
+    external: true

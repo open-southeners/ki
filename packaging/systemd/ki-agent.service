@@ -1,0 +1,26 @@
+[Unit]
+Description=ki-agent server management agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ki-agent run
+Restart=on-failure
+RestartSec=2s
+
+# /run/ki-agent (socket) and /var/lib/ki-agent (data) are managed by systemd.
+RuntimeDirectory=ki-agent
+StateDirectory=ki-agent
+
+# Sandboxing: the data directory is the only writable path.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ki-agent
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+
+# Docker socket access will be granted via SupplementaryGroups=docker in M2.
+
+[Install]
+WantedBy=multi-user.target
