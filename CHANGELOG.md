@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Container management**: `containers.list`, `containers.inspect`,
+  `containers.start`, `containers.stop`, `containers.restart` and
+  `containers.remove` operate on Docker containers, and `runtime.info`
+  reports the engine. Only containers labelled `ki.managed=true` are visible;
+  unmanaged containers answer `-32006` exactly like missing ones. The agent
+  starts without Docker and answers `-32008` until the engine is reachable.
+- **Live container logs**: `containers.logs.subscribe` (`tail`, `since`,
+  `timestamps`) streams `containers.logs.update` notifications until
+  `containers.logs.unsubscribe` or the container stops, which ends the stream
+  with `{eof: true}`.
+- **Docker configuration**: `docker.host` (env `KI_DOCKER_HOST`, default
+  `unix:///var/run/docker.sock`), and the systemd unit now runs with the
+  `docker` group so the agent can reach the socket.
+- `agent.hello` advertises the `containers` capability; new error codes
+  `-32006` NotFound, `-32007` PolicyViolation (reserved for the upcoming
+  deploy safety checks) and `-32008` RuntimeUnavailable are documented in the
+  OpenRPC specification.
 - **Agent service**: `ki-agent run` starts the agent in the foreground, logs
   as JSON on stderr, creates its data directory, and shuts down cleanly on
   SIGINT or SIGTERM. `ki-agent version` prints the version and commit.

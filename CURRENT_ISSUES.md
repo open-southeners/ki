@@ -61,3 +61,52 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   stored on the peer, so nothing can log or branch on them yet.
 - **Fix:** store them via `Peer.Set` and include `client.name/version` in the
   connection log once something needs them.
+
+## Compose must be normalized without env resolution (M4)
+
+- **Where:** M4 deploy pipeline (`docker compose config` call before `internal/policy.Check`).
+- **What:** by default `docker compose config` reads `env_file` contents itself —
+  even from outside the project root — and drops the key, so the `env_file`
+  policy rule never sees it. `include`/`extends` also make compose read files
+  outside the root while normalizing untrusted YAML.
+- **Fix:** run `docker compose config --format json --no-env-resolution`, with
+  a minimal environment and the project dir as cwd; consider rejecting
+  `include`/`extends` sources outside the root before invoking compose.
+
+## Policy rules not yet covered (M2 follow-up)
+
+- **Where:** `internal/policy/check.go`.
+- **What:** `group_add`, `runtime`, `pull_policy`, `ulimits`, `develop.watch`,
+  `post_start`/`pre_stop` hooks and `provider:` services are not inspected.
+  None is a known host escape on its own, but `runtime` (custom OCI runtimes)
+  and `provider` (runs host-side plugins) deserve a look.
+- **Fix:** review each; reject `provider` services and non-default `runtime`
+  unless allow-listed in config.
+
+## Go `rpc.Peer` dispatches incoming notifications concurrently (M2)
+
+- **Where:** `internal/rpc/peer.go` (notification dispatch).
+- **What:** the wire order of subscription updates is correct (single writer),
+  but a Go consumer using `rpc.Peer` as a client gets notification handlers run
+  in separate goroutines, so ordered streams (container logs) can be observed
+  out of order. Matters once the agent itself consumes ordered streams, or for
+  anyone reusing the package as a client library.
+- **Fix:** dispatch notifications serially per subscription id (or per peer),
+  and state "order by `seq`" in the OpenRPC `SubscriptionUpdate` description.
+
+## Dev compose `ki-agent` service has no Docker engine (M2)
+
+- **Where:** `docker-compose.yml` (`ki-agent` service).
+- **What:** no `KI_DOCKER_HOST` and not attached to `testnet`, so the dev agent
+  logs "runtime unreachable" and every `containers.*` call returns −32008.
+- **Fix:** set `KI_DOCKER_HOST=tcp://dind:2375`, add `testnet` to its networks
+  and `depends_on: dind (healthy)`.
+
+## Runtime-unavailable cause is not logged (M2)
+
+- **Where:** `internal/containers/containers.go` (error mapping to −32008).
+- **What:** callers get the fixed message "container runtime unavailable"; the
+  underlying engine error is discarded, which hampers diagnosing socket
+  permission problems (e.g. missing `docker` group).
+- **Fix:** log the wrapped error at warn level (rate-limited) when mapping
+  `runtime.ErrUnavailable`.
