@@ -78,12 +78,20 @@ func (w WebSocket) Token() (string, error) {
 	return t, nil
 }
 
+// Docker configures the container engine connection.
+type Docker struct {
+	// Host is the engine endpoint (unix:// or tcp://). The agent starts even
+	// when the engine is down; container methods fail until it is reachable.
+	Host string `yaml:"host"`
+}
+
 // Config is the full agent configuration.
 type Config struct {
 	DataDir   string    `yaml:"data_dir"`
 	LogLevel  string    `yaml:"log_level"`
 	Socket    Socket    `yaml:"socket"`
 	WebSocket WebSocket `yaml:"websocket"`
+	Docker    Docker    `yaml:"docker"`
 }
 
 // Default returns the configuration used when nothing is configured.
@@ -92,6 +100,7 @@ func Default() Config {
 		DataDir:  "/var/lib/ki-agent",
 		LogLevel: "info",
 		Socket:   Socket{Path: "/run/ki-agent/ki.sock", Mode: 0o660},
+		Docker:   Docker{Host: "unix:///var/run/docker.sock"},
 		WebSocket: WebSocket{
 			Path:              "/rpc",
 			HeartbeatInterval: 15 * time.Second,
@@ -160,6 +169,7 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 		}
 		cfg.Socket.Mode = m
 	}
+	str("KI_DOCKER_HOST", &cfg.Docker.Host)
 	str("KI_WEBSOCKET_LISTEN", &cfg.WebSocket.Listen)
 	str("KI_WEBSOCKET_PATH", &cfg.WebSocket.Path)
 	str("KI_WEBSOCKET_TOKEN_FILE", &cfg.WebSocket.TokenFile)
@@ -181,6 +191,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Socket.Path == "" {
 		return errors.New("socket.path must not be empty")
+	}
+	if c.Docker.Host == "" {
+		return errors.New("docker.host must not be empty")
 	}
 	if !c.WebSocket.Enabled() {
 		return nil

@@ -33,7 +33,8 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	}
 	d := Default()
 	if d.DataDir != "/var/lib/ki-agent" || d.Socket.Mode != 0o660 || d.WebSocket.Path != "/rpc" ||
-		d.WebSocket.HeartbeatInterval != 15*time.Second || d.WebSocket.HeartbeatTimeout != 45*time.Second {
+		d.WebSocket.HeartbeatInterval != 15*time.Second || d.WebSocket.HeartbeatTimeout != 45*time.Second ||
+		d.Docker.Host != "unix:///var/run/docker.sock" {
 		t.Fatalf("unexpected defaults: %+v", d)
 	}
 }
@@ -52,6 +53,8 @@ websocket:
   token_file: `+tok+`
   heartbeat_interval: 5s
   heartbeat_timeout: 20s
+docker:
+  host: tcp://dind:2375
 `)
 	tests := []struct {
 		name  string
@@ -61,15 +64,17 @@ websocket:
 		{"file values", nil, func(c *Config) bool {
 			return c.DataDir == "/tmp/data" && c.LogLevel == "debug" && c.Socket.Mode == 0o600 &&
 				c.WebSocket.Listen == "127.0.0.1:9000" && c.WebSocket.HeartbeatInterval == 5*time.Second &&
-				c.WebSocket.Path == "/rpc"
+				c.WebSocket.Path == "/rpc" && c.Docker.Host == "tcp://dind:2375"
 		}},
 		{"env overrides file", map[string]string{
 			"KI_DATA_DIR": "/srv/x", "KI_LOG_LEVEL": "warn", "KI_SOCKET_MODE": "0640",
 			"KI_SOCKET_PATH": "/run/x.sock", "KI_WEBSOCKET_PATH": "/ws",
+			"KI_DOCKER_HOST":                  "unix:///run/docker.sock",
 			"KI_WEBSOCKET_HEARTBEAT_INTERVAL": "1s", "KI_WEBSOCKET_HEARTBEAT_TIMEOUT": "3s",
 		}, func(c *Config) bool {
 			return c.DataDir == "/srv/x" && c.LogLevel == "warn" && c.Socket.Mode == 0o640 &&
 				c.Socket.Path == "/run/x.sock" && c.WebSocket.Path == "/ws" &&
+				c.Docker.Host == "unix:///run/docker.sock" &&
 				c.WebSocket.HeartbeatInterval == time.Second && c.WebSocket.HeartbeatTimeout == 3*time.Second
 		}},
 	}
@@ -102,6 +107,7 @@ func TestLoadErrors(t *testing.T) {
 		{"bad mode", "socket:\n  mode: 0999\n", nil, "invalid file mode"},
 		{"bad env mode", "", map[string]string{"KI_SOCKET_MODE": "rw"}, "KI_SOCKET_MODE"},
 		{"bad env duration", "", map[string]string{"KI_WEBSOCKET_HEARTBEAT_TIMEOUT": "x"}, "KI_WEBSOCKET_HEARTBEAT_TIMEOUT"},
+		{"empty docker host", "docker:\n  host: \"\"\n", nil, "docker.host"},
 		{"ws without token file", "websocket:\n  listen: :9000\n", nil, "token_file is not set"},
 		{"ws missing token file", "websocket:\n  listen: :9000\n  token_file: " + filepath.Join(dir, "none") + "\n", nil, "read websocket token file"},
 		{"ws empty token", "websocket:\n  listen: :9000\n  token_file: " + empty + "\n", nil, "is empty"},

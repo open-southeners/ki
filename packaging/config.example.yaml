@@ -2,7 +2,7 @@
 # Every key is optional; the values shown are the defaults.
 # Each key can also be overridden by an environment variable named
 # KI_<KEY PATH IN UPPER CASE>, e.g. KI_DATA_DIR, KI_SOCKET_PATH,
-# KI_WEBSOCKET_TOKEN_FILE.
+# KI_WEBSOCKET_TOKEN_FILE, KI_DOCKER_HOST.
 
 # Directory for all agent state; the only path the agent writes to.
 data_dir: /var/lib/ki-agent
@@ -31,3 +31,11 @@ websocket:
   # Connections with no pong within this time are closed.
   # Must be greater than heartbeat_interval.
   heartbeat_timeout: 45s
+
+# Container engine the agent manages containers on. The agent starts even if
+# the engine is down; container methods fail with RuntimeUnavailable until it
+# is reachable. The service user needs access to the endpoint (the systemd unit
+# adds the docker group).
+docker:
+  # unix:// or tcp:// endpoint.
+  host: unix:///var/run/docker.sock
