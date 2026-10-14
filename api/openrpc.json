@@ -589,7 +589,7 @@
       },
       "AgentInfo": {
         "type": "object",
-        "required": ["version", "commit", "hostname", "os", "arch", "uptime_ms", "go_version"],
+        "required": ["version", "commit", "hostname", "os", "arch", "uptime_ms", "go_version", "control_plane"],
         "properties": {
           "version": { "type": "string" },
           "commit": { "type": "string" },
@@ -597,7 +597,21 @@
           "os": { "type": "string", "examples": ["linux"] },
           "arch": { "type": "string", "examples": ["amd64"] },
           "uptime_ms": { "type": "integer", "description": "Milliseconds since the agent started." },
-          "go_version": { "type": "string" }
+          "go_version": { "type": "string" },
+          "control_plane": { "$ref": "#/components/schemas/ControlPlaneStatus" }
+        }
+      },
+      "ControlPlaneStatus": {
+        "type": "object",
+        "description": "State of the agent's outbound connection to a control plane.",
+        "required": ["state"],
+        "properties": {
+          "state": { "type": "string", "enum": ["disabled", "connecting", "connected", "backoff"] },
+          "url": { "type": "string", "description": "Control plane endpoint without userinfo, query or fragment." },
+          "connected_since": { "type": "string", "format": "date-time", "description": "Present while state is connected." },
+          "last_error": { "type": "string", "description": "Why the most recent connection attempt failed or the connection ended." },
+          "reconnects": { "type": "integer", "description": "Connection attempts made after the first one." },
+          "next_attempt": { "type": "string", "format": "date-time", "description": "Present while state is backoff." }
         }
       },
       "Heartbeat": {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -134,5 +135,16 @@ func TestParseMajor(t *testing.T) {
 		if m, ok := parseMajor(tt.in); m != tt.major || ok != tt.ok {
 			t.Errorf("parseMajor(%q) = %d,%v want %d,%v", tt.in, m, ok, tt.major, tt.ok)
 		}
+	}
+}
+
+func TestInfoControlPlane(t *testing.T) {
+	a := New()
+	if got := a.controlPlaneStatus(); !reflect.DeepEqual(got, map[string]string{"state": "disabled"}) {
+		t.Fatalf("default control_plane = %v", got)
+	}
+	a.SetControlPlane(func() any { return map[string]string{"state": "connected"} })
+	if got := a.controlPlaneStatus(); !reflect.DeepEqual(got, map[string]string{"state": "connected"}) {
+		t.Fatalf("control_plane = %v", got)
 	}
 }

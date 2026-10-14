@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/open-southeners/ki-agent/api"
@@ -36,12 +37,48 @@ const (
 // handshakeKey is the per-peer state flag set by a successful agent.hello.
 const handshakeKey = "agent.handshaken"
 
+// helloHookKey is the per-peer state key under which a hello hook is stored.
+const helloHookKey = "agent.hello-hook"
+
+// WithHelloHook returns a context carrying fn. A server that serves a
+// connection with this context (see Server.ServeConn) arranges for fn to be
+// called once each time agent.hello succeeds on that connection.
+func WithHelloHook(ctx context.Context, fn func()) context.Context {
+	return context.WithValue(ctx, helloHookKey, fn)
+}
+
+// HelloHook returns the hook stored in ctx by WithHelloHook, or nil.
+func HelloHook(ctx context.Context) func() {
+	fn, _ := ctx.Value(helloHookKey).(func())
+	return fn
+}
+
+// SetHelloHook stores fn on p; agent.hello calls it after a successful
+// handshake. It must be called before p starts running.
+func SetHelloHook(p *rpc.Peer, fn func()) { p.Set(helloHookKey, fn) }
+
 // capabilities the agent advertises in agent.hello.
 var capabilities = []string{"heartbeat", "containers"}
 
 // Agent holds the state shared by the method handlers.
 type Agent struct {
 	start time.Time
+
+	controlPlane atomic.Pointer[func() any]
+}
+
+// disabledControlPlane is reported by agent.info until SetControlPlane is called.
+var disabledControlPlane = map[string]string{"state": "disabled"}
+
+// SetControlPlane sets the function agent.info calls for its control_plane
+// field. fn must return a JSON-encodable value and be safe for concurrent use.
+func (a *Agent) SetControlPlane(fn func() any) { a.controlPlane.Store(&fn) }
+
+func (a *Agent) controlPlaneStatus() any {
+	if fn := a.controlPlane.Load(); fn != nil {
+		return (*fn)()
+	}
+	return disabledControlPlane
 }
 
 // New returns an Agent whose uptime starts now.
@@ -107,6 +144,11 @@ func (a *Agent) hello(_ context.Context, p *rpc.Peer, params json.RawMessage) (a
 			WithData(map[string]string{"supported": api.ProtocolVersion})
 	}
 	p.Set(handshakeKey, true)
+	if fn, _ := p.Get(helloHookKey); fn != nil {
+		if f, ok := fn.(func()); ok && f != nil {
+			f()
+		}
+	}
 	return map[string]any{
 		"protocol": api.ProtocolVersion,
 		"agent": map[string]string{
@@ -150,6 +192,8 @@ func (a *Agent) info(context.Context, *rpc.Peer, json.RawMessage) (any, error) {
 		"arch":       runtime.GOARCH,
 		"uptime_ms":  a.uptimeMS(),
 		"go_version": runtime.Version(),
+
+		"control_plane": a.controlPlaneStatus(),
 	}, nil
 }
 
