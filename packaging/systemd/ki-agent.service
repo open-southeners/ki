@@ -20,7 +20,10 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 
-# Docker socket access will be granted via SupplementaryGroups=docker in M2.
+# Docker socket access. Membership of the docker group is root-equivalent on
+# the host, which is why the agent only touches containers it labelled itself
+# and why compose projects are checked against a safety policy before they run.
+SupplementaryGroups=docker
 
 [Install]
 WantedBy=multi-user.target
