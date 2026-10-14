@@ -2,7 +2,7 @@
   "openrpc": "1.3.2",
   "info": {
     "title": "ki-agent JSON-RPC API",
-    "description": "Control API of the ki-agent, served over JSON-RPC 2.0 on a local Unix socket (newline-delimited JSON) and an optional bearer-token WebSocket endpoint. Every connection must start with agent.hello; only agent.hello and rpc.discover may be called before it.",
+    "description": "Control API of the ki-agent, served over JSON-RPC 2.0 on a local Unix socket (newline-delimited JSON) and an optional bearer-token WebSocket endpoint. Every connection must start with agent.hello; only agent.hello and rpc.discover may be called before it. Container methods only ever see containers labelled ki.managed=true.",
     "version": "1.0.0",
     "license": {
       "name": "Apache-2.0",
@@ -155,6 +155,400 @@
           }
         }
       ]
+    },
+    {
+      "name": "runtime.info",
+      "summary": "Describe the container engine.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "info",
+        "schema": {
+          "$ref": "#/components/schemas/RuntimeInfo"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.list",
+      "summary": "List containers managed by ki.",
+      "description": "Only containers labelled ki.managed=true are ever listed; other containers on the host are invisible.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "project",
+          "description": "Only containers of this project slug. Defaults to all managed containers.",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "containers",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Container"
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.inspect",
+      "summary": "Describe one managed container.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Container id (full or unambiguous prefix) or name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "container",
+        "schema": {
+          "$ref": "#/components/schemas/ContainerDetail"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.start",
+      "summary": "Start a container.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Container id (full or unambiguous prefix) or name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.stop",
+      "summary": "Stop a container.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Container id (full or unambiguous prefix) or name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "timeout_s",
+          "description": "Seconds to wait for the container to stop before it is killed. Defaults to the container's own stop timeout.",
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.restart",
+      "summary": "Restart a container.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Container id (full or unambiguous prefix) or name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "timeout_s",
+          "description": "Seconds to wait for the container to stop before it is killed. Defaults to the container's own stop timeout.",
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.remove",
+      "summary": "Remove a container.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Container id (full or unambiguous prefix) or name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "force",
+          "description": "Kill the container first if it is running. Defaults to false.",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.logs.subscribe",
+      "summary": "Stream a container's log output as containers.logs.update notifications.",
+      "description": "An ordered stream (see SubscriptionUpdate): lines are never replaced by newer ones, and a slow consumer sees a gap marker instead. The stream follows the container until containers.logs.unsubscribe, the end of the connection, or the container stopping; in the last case a final update with data {\"eof\": true} is sent and the subscription is closed. If the log stream fails mid-way the final update also carries an error message. The container is checked before the subscription id is returned, so an unknown container fails the call with NotFound. Subscriptions do not support resuming by sequence number: resubscribe with since.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Container id (full or unambiguous prefix) or name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "tail",
+          "description": "Number of most recent lines to send first. Defaults to 100; values above 10000 are clamped to 10000.",
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        {
+          "name": "since",
+          "description": "Only lines newer than this RFC 3339 timestamp. Use the time of the last line received (with timestamps enabled) to resume after a reconnect.",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "timestamps",
+          "description": "Include the time of each line in the updates. Defaults to false.",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "subscription",
+        "schema": {
+          "type": "object",
+          "required": [
+            "subscription"
+          ],
+          "properties": {
+            "subscription": {
+              "$ref": "#/components/schemas/SubscriptionID"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "containers.logs.unsubscribe",
+      "summary": "Stop a log subscription.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "subscription",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionID"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/SubscriptionNotFound"
+        }
+      ]
+    },
+    {
+      "name": "containers.logs.update",
+      "summary": "Notification sent by the agent for a log subscription.",
+      "description": "Sent from agent to client; it has no id and expects no response. It is not a callable method.",
+      "x-notification": true,
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "update",
+          "description": "The subscription update envelope; data carries a log line or the final end-of-stream marker.",
+          "required": true,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionUpdate"
+              },
+              {
+                "properties": {
+                  "data": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/LogLine"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LogEnd"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
     }
   ],
   "components": {
@@ -237,6 +631,262 @@
           { "required": ["data"] },
           { "required": ["gap"] }
         ]
+      },
+      "RuntimeInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "api_version",
+          "os",
+          "arch"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "examples": [
+              "docker"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          }
+        }
+      },
+      "Container": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "image",
+          "state",
+          "status",
+          "created"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "examples": [
+              "running",
+              "exited"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "Human-readable status."
+          },
+          "project": {
+            "type": "string",
+            "description": "Value of the ki.project label."
+          },
+          "service": {
+            "type": "string",
+            "description": "Value of the ki.service label."
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "private_port",
+                "type"
+              ],
+              "properties": {
+                "private_port": {
+                  "type": "integer"
+                },
+                "public_port": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "examples": [
+                    "tcp"
+                  ]
+                },
+                "ip": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ContainerDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Container"
+          },
+          {
+            "type": "object",
+            "required": [
+              "started_at",
+              "finished_at",
+              "exit_code",
+              "restart_count"
+            ],
+            "properties": {
+              "started_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "finished_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "exit_code": {
+                "type": "integer"
+              },
+              "restart_count": {
+                "type": "integer"
+              },
+              "health": {
+                "type": "string",
+                "enum": [
+                  "starting",
+                  "healthy",
+                  "unhealthy"
+                ],
+                "description": "Absent when the container has no health check."
+              },
+              "mounts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "source",
+                    "destination",
+                    "read_only"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "read_only": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "networks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "LogLine": {
+        "type": "object",
+        "description": "One line of container output.",
+        "required": [
+          "stream",
+          "text"
+        ],
+        "properties": {
+          "stream": {
+            "type": "string",
+            "enum": [
+              "stdout",
+              "stderr"
+            ]
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only when the subscription asked for timestamps."
+          },
+          "text": {
+            "type": "string",
+            "description": "The line without its newline. Lines over 64 KiB are truncated and end in a truncation marker."
+          }
+        }
+      },
+      "LogEnd": {
+        "type": "object",
+        "description": "Final update of a log subscription: the container stopped and the stream ended.",
+        "required": [
+          "eof"
+        ],
+        "properties": {
+          "eof": {
+            "type": "boolean",
+            "const": true
+          },
+          "error": {
+            "type": "string",
+            "description": "Present when the stream ended because of a failure rather than the container stopping."
+          }
+        }
+      },
+      "PolicyViolations": {
+        "type": "object",
+        "description": "Data of a PolicyViolation error.",
+        "required": [
+          "violations"
+        ],
+        "properties": {
+          "violations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "service",
+                "rule",
+                "detail"
+              ],
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "rule": {
+                  "type": "string",
+                  "description": "Stable rule identifier, for example privileged."
+                },
+                "detail": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "errors": {
@@ -249,7 +899,10 @@
       "HandshakeRequired": { "code": -32002, "message": "Handshake required: call agent.hello first" },
       "IncompatibleVersion": { "code": -32003, "message": "Incompatible protocol version" },
       "SubscriptionNotFound": { "code": -32004, "message": "Subscription not found" },
-      "Overloaded": { "code": -32005, "message": "Overloaded" }
+      "Overloaded": { "code": -32005, "message": "Overloaded" },
+      "NotFound": { "code": -32006, "message": "Container not found", "data": "Also returned for containers that exist but are not managed by ki." },
+      "PolicyViolation": { "code": -32007, "message": "Policy violation", "data": "Object {violations: [{service, rule, detail}]}; see the PolicyViolations schema." },
+      "RuntimeUnavailable": { "code": -32008, "message": "Container runtime unavailable" }
     }
   }
 }

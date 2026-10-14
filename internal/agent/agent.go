@@ -37,7 +37,7 @@ const (
 const handshakeKey = "agent.handshaken"
 
 // capabilities the agent advertises in agent.hello.
-var capabilities = []string{"heartbeat"}
+var capabilities = []string{"heartbeat", "containers"}
 
 // Agent holds the state shared by the method handlers.
 type Agent struct {

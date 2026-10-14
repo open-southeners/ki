@@ -52,6 +52,12 @@ func (b *syncBuf) String() string {
 
 func start(t *testing.T) *harness {
 	t.Helper()
+	return startWith(t, nil)
+}
+
+// startWith is start with extra handlers registered on the router.
+func startWith(t *testing.T, register func(*rpc.Router)) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	tokenFile := filepath.Join(dir, "token")
 	if err := os.WriteFile(tokenFile, []byte(testToken+"\n"), 0o600); err != nil {
@@ -68,6 +74,9 @@ func start(t *testing.T) *harness {
 
 	router := rpc.NewRouter()
 	agent.New().Register(router)
+	if register != nil {
+		register(router)
+	}
 	logs := &syncBuf{}
 	srv, err := New(Options{Config: &cfg, Router: router, Logger: slog.New(slog.NewJSONHandler(logs, nil))})
 	if err != nil {

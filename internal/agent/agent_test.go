@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/open-southeners/ki-agent/api"
+	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 )
 
@@ -66,13 +67,14 @@ func TestSpecMatchesRouter(t *testing.T) {
 		}
 		names = append(names, m.Name)
 	}
-	if notifications != 1 {
-		t.Errorf("notifications documented = %d, want 1", notifications)
+	if notifications != 2 {
+		t.Errorf("notifications documented = %d, want 2", notifications)
 	}
 	slices.Sort(names)
 
 	r := rpc.NewRouter()
 	New().Register(r)
+	containers.New(nil, nil).Register(r)
 	if got := r.Methods(); !slices.Equal(got, names) {
 		t.Fatalf("router methods %v != spec methods %v", got, names)
 	}
@@ -104,6 +106,8 @@ func TestSpecDocumentsEnvelopeAndErrors(t *testing.T) {
 		"InternalError": rpc.CodeInternalError, "Unauthorized": rpc.CodeUnauthorized,
 		"HandshakeRequired": rpc.CodeHandshakeRequired, "IncompatibleVersion": rpc.CodeIncompatibleVersion,
 		"SubscriptionNotFound": rpc.CodeSubscriptionNotFound, "Overloaded": rpc.CodeOverloaded,
+		"NotFound": rpc.CodeNotFound, "PolicyViolation": rpc.CodePolicyViolation,
+		"RuntimeUnavailable": rpc.CodeRuntimeUnavailable,
 	}
 	for name, code := range want {
 		if got, ok := s.Components.Errors[name]; !ok || got.Code != code {
