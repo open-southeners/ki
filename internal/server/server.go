@@ -206,12 +206,27 @@ func (s *Server) acceptUnix(ctx context.Context) {
 	}
 }
 
+// ServeConn serves the JSON-RPC API over c until the connection ends and
+// returns then. It applies the same peer options, handshake gate and logging
+// as connections accepted by the listeners, and is tracked for graceful
+// shutdown: Serve closes the peer and waits for ServeConn to return. After
+// shutdown has begun, c is closed immediately. transport labels log lines.
+// A hook installed with agent.WithHelloHook on ctx is called after each
+// successful agent.hello on this connection.
+func (s *Server) ServeConn(ctx context.Context, transport string, c rpc.Conn) {
+	s.servePeer(ctx, transport, c)
+}
+
 // servePeer runs a Peer over c until it ends. It is also the WebSocket onConn
 // callback, so it must not return before the connection is done.
 func (s *Server) servePeer(ctx context.Context, transport string, c rpc.Conn) {
 	p := rpc.NewPeer(c, s.router, rpc.WithLogger(s.log),
 		// Serial until handshaken so requests pipelined behind agent.hello see its effect.
 		rpc.WithSerialDispatch(func(p *rpc.Peer) bool { return !agent.Handshaken(p) }))
+
+	if fn := agent.HelloHook(ctx); fn != nil {
+		agent.SetHelloHook(p, fn)
+	}
 
 	s.mu.Lock()
 	if s.closed {
