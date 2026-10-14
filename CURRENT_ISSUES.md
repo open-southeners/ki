@@ -110,3 +110,63 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   permission problems (e.g. missing `docker` group).
 - **Fix:** log the wrapped error at warn level (rate-limited) when mapping
   `runtime.ErrUnavailable`.
+
+## Control-plane `last_error` carries verbose library wording (M1b)
+
+- **Where:** `internal/controlplane/controlplane.go` (dial error → `Status.LastError`).
+- **What:** dial failures surface the `coder/websocket` chain verbatim, e.g.
+  `dial: failed to WebSocket dial: failed to send handshake request: Get "ws://…"`.
+  Credentials are redacted, but the text is long and library-specific.
+- **Fix:** map common failures to short causes (`connection refused`,
+  `HTTP 401`, `TLS: unknown authority`, `timeout`) and keep the full chain in logs only.
+
+## Control-plane rejection status is only in free text (M1b)
+
+- **Where:** `controlplane.Status` / `agent.info.control_plane`.
+- **What:** a 401/403 rejection is visible only inside `last_error` (`HTTP 401`);
+  a UI cannot tell "bad token" from "network down" without parsing text.
+- **Fix:** add an optional `last_http_status` field (additive, minor protocol bump).
+
+## Control-plane connection can be served before `Server.Serve` starts (M1b)
+
+- **Where:** `internal/cli/run.go` (connector goroutine started before `srv.Serve`).
+- **What:** harmless today (tracking is mutex-guarded, `closed` only set on
+  shutdown), but the ordering is implicit.
+- **Fix:** start the connector after the listeners are up, or document that
+  `ServeConn` is valid before `Serve`.
+
+## Subscription updates can precede the subscribe response (M1b)
+
+- **Where:** `internal/rpc/subscription.go` (`Subscriptions.Open` starts the pump
+  before the handler's response is queued).
+- **What:** the first `*.update` for a new subscription id can reach the client
+  before the `{subscription}` result — most likely for container logs with `tail`.
+  `docs/protocol.md` tells clients to buffer updates for unknown ids.
+- **Fix:** hold the pump until the response is written (e.g. a start gate released
+  after the response is enqueued), then relax the docs.
+
+## Reserved error codes are never returned (M1b)
+
+- **Where:** `internal/rpc/errors.go`, `api/openrpc.json` (−32001 Unauthorized,
+  −32005 Overloaded).
+- **What:** defined and documented as "reserved"; auth fails at HTTP level and no
+  overload path exists yet.
+- **Fix:** use −32005 when the per-peer concurrency cap lands, or drop both codes
+  before 1.0.
+
+## Outbound contract leaves some behaviour unspecified (M1b)
+
+- **Where:** `docs/protocol.md` ("Outbound connection").
+- **What:** not stated: whether the agent sends a close frame when the control plane
+  closes first; whether the control plane should reject unknown `Ki-Protocol`
+  majors before upgrading; which of 401/403 to use.
+- **Fix:** decide and document (suggest: control plane may reject an incompatible
+  `Ki-Protocol` major with HTTP 426; agent treats it like 401/403).
+
+## Example config is not exercised by tests (M1b)
+
+- **Where:** `packaging/config.example.yaml`, `internal/config`.
+- **What:** no test loads the shipped example, so it can drift from the config
+  struct (it was only verified manually during the M1b smoke test).
+- **Fix:** add a config test that loads the example (with paths overridden) and
+  asserts it validates.

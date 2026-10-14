@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Outbound control-plane connection**: with `control_plane.url` set (env
+  `KI_CONTROL_PLANE_*`), the agent dials out to a control plane over
+  `wss://` (plain `ws://` only for loopback hosts) with a bearer token from
+  `control_plane.token_file`, and the control plane then drives the normal
+  JSON-RPC API over that connection, so agents behind NAT or firewalls need no
+  inbound port. The connection is kept alive with pings, re-established with
+  jittered exponential backoff (`reconnect_min`/`reconnect_max`, backing off
+  to the maximum when credentials are rejected), and trusts the system roots
+  plus an optional `control_plane.ca_file`. Subscriptions do not survive a
+  reconnect; the control plane re-subscribes.
+- `agent.info` reports the connection in a new `control_plane` field (`state`,
+  sanitized `url`, `connected_since`, `last_error`, `reconnects`,
+  `next_attempt`).
 - **Container management**: `containers.list`, `containers.inspect`,
   `containers.start`, `containers.stop`, `containers.restart` and
   `containers.remove` operate on Docker containers, and `runtime.info`
