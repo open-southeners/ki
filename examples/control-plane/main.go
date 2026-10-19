@@ -4,7 +4,7 @@
 // authenticates them with a bearer token, then acts as the JSON-RPC client of
 // the agent API: agent.hello, agent.info, a heartbeat subscription and,
 // optionally, a container log subscription. Updates are printed as they
-// arrive.
+// arrive. With -enroll it also plays the enrollment server (see enroll.go).
 //
 // It deliberately imports nothing from the ki-agent module: the protocol is
 // plain JSON-RPC 2.0 over WebSocket text messages, see docs/protocol.md.
@@ -36,11 +36,20 @@ const protocolVersion = "1.0.0"
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "listen address")
 	path := flag.String("path", "/agent", "HTTP path agents connect to")
-	token := flag.String("token", "", "bearer token agents must present (required)")
+	token := flag.String("token", "", "bearer token agents must present (required unless -enroll)")
+	enroll := flag.Bool("enroll", false, "serve the device-flow enrollment endpoints; issued tokens are accepted too")
+	publicURL := flag.String("public-url", "", "WebSocket URL handed to enrolled agents (default ws://<addr><path>)")
 	logs := flag.String("logs", "", "container id or name whose logs to follow")
 	flag.Parse()
-	if *token == "" {
-		log.Fatal("-token is required")
+	if *token == "" && !*enroll {
+		log.Fatal("-token is required (or use -enroll)")
+	}
+	if *publicURL == "" {
+		*publicURL = "ws://" + *addr + *path
+	}
+	var en *enroller
+	if *enroll {
+		en = newEnroller(*publicURL, time.Now)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -50,7 +59,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc(*path, func(w http.ResponseWriter, r *http.Request) {
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(*token)) != 1 {
+		if !ok || !tokenOK(got, *token, en) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -67,6 +76,10 @@ func main() {
 		lg.Printf("disconnected")
 	})
 
+	if en != nil {
+		en.register(mux)
+	}
+
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -77,10 +90,23 @@ func main() {
 		_ = srv.Shutdown(sctx)
 	}()
 	log.Printf("control plane listening on ws://%s%s", *addr, *path)
+	if en != nil {
+		log.Printf("enrollment enabled: ki-agent enroll http://%s (agents are told to use %s)", *addr, *publicURL)
+	}
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 	sessions.Wait()
+}
+
+// tokenOK reports whether got is the static token or an enrolled agent's
+// token. Comparisons are constant time.
+func tokenOK(got, static string, en *enroller) bool {
+	ok := static != "" && subtle.ConstantTimeCompare([]byte(got), []byte(static)) == 1
+	if en != nil && en.validToken(got) {
+		ok = true
+	}
+	return ok
 }
 
 // runSession drives one agent connection until it ends or ctx is cancelled.
