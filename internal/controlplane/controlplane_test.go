@@ -469,3 +469,196 @@ func TestNewRequiresFields(t *testing.T) {
 		}
 	}
 }
+
+// managerOpts returns Options for a manager-run connector against f.
+func managerOpts(a *agentSide, f *fakeCP) *Options {
+	return &Options{
+		URL:               f.wsURL(),
+		Token:             testToken,
+		HeartbeatInterval: 100 * time.Millisecond,
+		HeartbeatTimeout:  time.Second,
+		ReconnectMin:      5 * time.Millisecond,
+		ReconnectMax:      20 * time.Millisecond,
+		Serve:             func(ctx context.Context, c rpc.Conn) { a.srv.ServeConn(ctx, "control-plane", c) },
+	}
+}
+
+func runManager(t *testing.T, m *Manager) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = m.Run(ctx); close(done) }()
+	stop = func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("manager did not stop")
+		}
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
+func TestManagerDisabledByDefault(t *testing.T) {
+	m := NewManager(nil)
+	if s := m.Status(); s.State != StateDisabled || s.Source != "" {
+		t.Fatalf("status = %+v", s)
+	}
+	runManager(t, m)
+	if err := m.Apply(nil, "config"); err != nil {
+		t.Fatal(err)
+	}
+	if s := m.StatusAny().(Status); s.State != StateDisabled {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
+func TestManagerApplyBeforeRun(t *testing.T) {
+	a := newAgentSide(t)
+	f := newFakeCP(t, false)
+	m := NewManager(nil)
+	if err := m.Apply(managerOpts(a, f), "config"); err != nil {
+		t.Fatal(err)
+	}
+	if s := m.Status(); s.State != StateConnecting || s.Source != "config" {
+		t.Fatalf("status = %+v", s)
+	}
+	select {
+	case <-f.peers:
+		t.Fatal("connected before Run")
+	case <-time.After(100 * time.Millisecond):
+	}
+	runManager(t, m)
+	hello(t, f.peer(t))
+	waitFor(t, "connected", func() bool { return m.Status().State == StateConnected })
+	if s := m.Status(); s.Source != "config" || s.URL != f.wsURL() {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
+func TestManagerApplyAfterRunSwapAndDisable(t *testing.T) {
+	a := newAgentSide(t)
+	fa := newFakeCP(t, false)
+	fb := newFakeCP(t, false)
+	m := NewManager(nil)
+	runManager(t, m)
+
+	if err := m.Apply(managerOpts(a, fa), "config"); err != nil {
+		t.Fatal(err)
+	}
+	pa := fa.peer(t)
+	hello(t, pa)
+	waitFor(t, "connected", func() bool { return m.Status().State == StateConnected })
+
+	// An invalid configuration leaves the running connection intact.
+	if err := m.Apply(&Options{URL: fb.wsURL()}, "enrollment"); err == nil {
+		t.Fatal("invalid Apply succeeded")
+	}
+	if s := m.Status(); s.State != StateConnected || s.Source != "config" {
+		t.Fatalf("status after bad apply = %+v", s)
+	}
+	select {
+	case <-pa.Done():
+		t.Fatal("bad apply dropped the connection")
+	default:
+	}
+
+	// Swap A -> B: A's connection is closed, B is dialed.
+	if err := m.Apply(managerOpts(a, fb), "enrollment"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-pa.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("old connection still open after swap")
+	}
+	pb := fb.peer(t)
+	hello(t, pb)
+	waitFor(t, "connected to B", func() bool {
+		s := m.Status()
+		return s.State == StateConnected && s.Source == "enrollment" && s.URL == fb.wsURL()
+	})
+	select {
+	case <-fa.peers:
+		t.Fatal("old connector reconnected after swap")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Disable drops B and stays down.
+	if err := m.Apply(nil, "enrollment"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-pb.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection still open after disable")
+	}
+	if s := m.Status(); s.State != StateDisabled {
+		t.Fatalf("status = %+v", s)
+	}
+	select {
+	case <-fb.peers:
+		t.Fatal("reconnected after disable")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestManagerCtxEndStopsEverything(t *testing.T) {
+	a := newAgentSide(t)
+	f := newFakeCP(t, false)
+	m := NewManager(nil)
+	stop := runManager(t, m)
+	if err := m.Apply(managerOpts(a, f), "config"); err != nil {
+		t.Fatal(err)
+	}
+	p := f.peer(t)
+	hello(t, p)
+	stop()
+	select {
+	case <-p.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection still open after Run returned")
+	}
+	if err := m.Apply(managerOpts(a, f), "config"); !errors.Is(err, ErrManagerStopped) {
+		t.Fatalf("Apply after Run = %v", err)
+	}
+	if s := m.Status(); s.State != StateDisabled {
+		t.Fatalf("status = %+v", s)
+	}
+	if err := m.Run(context.Background()); err == nil {
+		t.Fatal("second Run succeeded")
+	}
+}
+
+func TestManagerConcurrentApplyAndStatus(t *testing.T) {
+	a := newAgentSide(t)
+	f := newFakeCP(t, false)
+	m := NewManager(nil)
+	stop := runManager(t, m)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				var o *Options
+				if j%3 != 2 {
+					o = managerOpts(a, f)
+				}
+				if err := m.Apply(o, "config"); err != nil {
+					t.Errorf("Apply: %v", err)
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				_ = m.Status()
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+	wg.Wait()
+	stop()
+}

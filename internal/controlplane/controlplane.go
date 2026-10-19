@@ -54,6 +54,9 @@ type Status struct {
 	Reconnects int `json:"reconnects"`
 	// NextAttempt is set while State is "backoff".
 	NextAttempt *time.Time `json:"next_attempt,omitempty"`
+	// Source names where the active configuration came from (for example
+	// "config" or "enrollment"). It is set by the Manager, not the Connector.
+	Source string `json:"source,omitempty"`
 }
 
 // Options configures a Connector.
