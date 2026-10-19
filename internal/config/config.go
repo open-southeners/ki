@@ -135,15 +135,17 @@ func (c ControlPlane) TLSConfig() (*tls.Config, error) {
 	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 }
 
-func (c ControlPlane) validate() error {
-	u, err := url.Parse(c.URL)
+// CheckControlPlaneURL reports whether raw is an acceptable control_plane.url:
+// wss://, or ws:// only for loopback hosts, and it must include a host.
+func CheckControlPlaneURL(raw string) error {
+	u, err := url.Parse(raw)
 	if err != nil {
 		return errors.New("control_plane.url is not a valid URL")
 	}
 	switch u.Scheme {
 	case "wss":
 	case "ws":
-		if !isLoopbackHost(u.Hostname()) {
+		if !IsLoopbackHost(u.Hostname()) {
 			return fmt.Errorf("control_plane.url must use wss:// unless the host is loopback (got ws:// to %q)", u.Hostname())
 		}
 	default:
@@ -151,6 +153,13 @@ func (c ControlPlane) validate() error {
 	}
 	if u.Hostname() == "" {
 		return errors.New("control_plane.url must include a host")
+	}
+	return nil
+}
+
+func (c ControlPlane) validate() error {
+	if err := CheckControlPlaneURL(c.URL); err != nil {
+		return err
 	}
 	if c.HeartbeatInterval <= 0 {
 		return errors.New("control_plane.heartbeat_interval must be positive")
@@ -173,7 +182,8 @@ func (c ControlPlane) validate() error {
 	return nil
 }
 
-func isLoopbackHost(h string) bool {
+// IsLoopbackHost reports whether h is "localhost" or a loopback IP address.
+func IsLoopbackHost(h string) bool {
 	if strings.EqualFold(h, "localhost") {
 		return true
 	}
