@@ -377,3 +377,28 @@ func TestNewRejectsMissingToken(t *testing.T) {
 		t.Fatal("expected error for websocket without token file")
 	}
 }
+
+func TestPeersAreTaggedWithTheirTransport(t *testing.T) {
+	h := startWith(t, func(r *rpc.Router) {
+		r.Handle("test.transport", func(_ context.Context, p *rpc.Peer, _ json.RawMessage) (any, error) {
+			return rpc.TransportOf(p), nil
+		})
+		r.Use(rpc.LocalOnly("test.transport"))
+	})
+	for name, c := range dialAll(t, h) {
+		t.Run(name, func(t *testing.T) {
+			if err := c.call(t, "agent.hello", map[string]any{"protocol": api.ProtocolVersion}, nil); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			err := c.call(t, "test.transport", nil, &got)
+			if name == "unix" {
+				if err != nil || got != rpc.TransportUnix {
+					t.Fatalf("transport = %q, %v", got, err)
+				}
+				return
+			}
+			wantCode(t, err, rpc.CodeUnauthorized)
+		})
+	}
+}

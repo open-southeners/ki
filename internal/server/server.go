@@ -80,7 +80,7 @@ func New(opts Options) (*Server, error) {
 			Token:             token,
 			HeartbeatInterval: w.HeartbeatInterval,
 			HeartbeatTimeout:  w.HeartbeatTimeout,
-		}, func(ctx context.Context, c rpc.Conn) { s.servePeer(ctx, "websocket", c) })
+		}, func(ctx context.Context, c rpc.Conn) { s.servePeer(ctx, rpc.TransportWebSocket, c) })
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +201,7 @@ func (s *Server) acceptUnix(ctx context.Context) {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			s.servePeer(ctx, "unix", c)
+			s.servePeer(ctx, rpc.TransportUnix, c)
 		}()
 	}
 }
@@ -210,7 +210,9 @@ func (s *Server) acceptUnix(ctx context.Context) {
 // returns then. It applies the same peer options, handshake gate and logging
 // as connections accepted by the listeners, and is tracked for graceful
 // shutdown: Serve closes the peer and waits for ServeConn to return. After
-// shutdown has begun, c is closed immediately. transport labels log lines.
+// shutdown has begun, c is closed immediately. transport labels log lines and
+// is recorded on the peer (see rpc.TransportOf) so local-only methods can be
+// refused on other transports.
 // A hook installed with agent.WithHelloHook on ctx is called after each
 // successful agent.hello on this connection.
 func (s *Server) ServeConn(ctx context.Context, transport string, c rpc.Conn) {
@@ -224,6 +226,7 @@ func (s *Server) servePeer(ctx context.Context, transport string, c rpc.Conn) {
 		// Serial until handshaken so requests pipelined behind agent.hello see its effect.
 		rpc.WithSerialDispatch(func(p *rpc.Peer) bool { return !agent.Handshaken(p) }))
 
+	rpc.SetTransport(p, transport)
 	if fn := agent.HelloHook(ctx); fn != nil {
 		agent.SetHelloHook(p, fn)
 	}
