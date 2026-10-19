@@ -173,4 +173,71 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("Inspect(removed) = %v", err)
 	}
 
+	testPrune(t, ctx, raw, d, suffix)
+}
+
+// testPrune checks PruneProject removes labelled resources and spares the rest.
+func testPrune(t *testing.T, ctx context.Context, raw *client.Client, d *Docker, suffix string) {
+	t.Helper()
+	project := "ittest-prune-" + suffix
+	both := map[string]string{runtime.LabelManaged: "true", runtime.LabelProject: project}
+	onlyProject := map[string]string{runtime.LabelProject: project}
+
+	mkContainer := func(name string, labels map[string]string) string {
+		t.Helper()
+		res, err := raw.ContainerCreate(ctx, client.ContainerCreateOptions{
+			Name:   name,
+			Config: &container.Config{Image: "busybox:latest", Labels: labels, Cmd: []string{"sleep", "600"}},
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		t.Cleanup(func() {
+			_, _ = raw.ContainerRemove(context.Background(), res.ID, client.ContainerRemoveOptions{Force: true})
+		})
+		return res.ID
+	}
+	mkNetwork := func(name string, labels map[string]string) string {
+		t.Helper()
+		res, err := raw.NetworkCreate(ctx, name, client.NetworkCreateOptions{Labels: labels})
+		if err != nil {
+			t.Fatalf("network %s: %v", name, err)
+		}
+		t.Cleanup(func() { _, _ = raw.NetworkRemove(context.Background(), res.ID, client.NetworkRemoveOptions{}) })
+		return res.ID
+	}
+	mkVolume := func(name string, labels map[string]string) {
+		t.Helper()
+		if _, err := raw.VolumeCreate(ctx, client.VolumeCreateOptions{Name: name, Labels: labels}); err != nil {
+			t.Fatalf("volume %s: %v", name, err)
+		}
+		t.Cleanup(func() { _, _ = raw.VolumeRemove(context.Background(), name, client.VolumeRemoveOptions{Force: true}) })
+	}
+
+	mkContainer("ki-it-prune-c-"+suffix, both)
+	keepC := mkContainer("ki-it-prune-keepc-"+suffix, onlyProject)
+	mkNetwork("ki-it-prune-n-"+suffix, both)
+	keepN := mkNetwork("ki-it-prune-keepn-"+suffix, onlyProject)
+	mkVolume("ki-it-prune-v-"+suffix, both)
+	mkVolume("ki-it-prune-keepv-"+suffix, onlyProject)
+
+	rep, err := d.PruneProject(ctx, project, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (runtime.PruneReport{Containers: 1, Networks: 1, Volumes: 1}); rep != want {
+		t.Fatalf("PruneProject = %+v, want %+v", rep, want)
+	}
+	if _, err := raw.ContainerInspect(ctx, keepC, client.ContainerInspectOptions{}); err != nil {
+		t.Fatalf("unmanaged container removed: %v", err)
+	}
+	if _, err := raw.NetworkInspect(ctx, keepN, client.NetworkInspectOptions{}); err != nil {
+		t.Fatalf("unmanaged network removed: %v", err)
+	}
+	if _, err := raw.VolumeInspect(ctx, "ki-it-prune-keepv-"+suffix, client.VolumeInspectOptions{}); err != nil {
+		t.Fatalf("unmanaged volume removed: %v", err)
+	}
+	if rep, err := d.PruneProject(ctx, project, true); err != nil || rep != (runtime.PruneReport{}) {
+		t.Fatalf("second PruneProject = %+v, %v", rep, err)
+	}
 }

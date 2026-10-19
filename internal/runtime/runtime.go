@@ -102,6 +102,13 @@ type Info struct {
 	Arch       string `json:"arch"`
 }
 
+// PruneReport counts the resources PruneProject removed.
+type PruneReport struct {
+	Containers int `json:"containers"`
+	Networks   int `json:"networks"`
+	Volumes    int `json:"volumes"`
+}
+
 // Runtime manages ki-managed containers. Every operation on an id first
 // confirms the container carries LabelManaged=true and otherwise fails with
 // ErrNotManaged; unmanaged containers are invisible and untouchable.
@@ -118,4 +125,9 @@ type Runtime interface {
 	// Logs calls fn for every log line; it returns when the stream ends, fn
 	// returns an error, or ctx is cancelled.
 	Logs(ctx context.Context, id string, opts LogOptions, fn func(LogLine) error) error
+	// PruneProject force-removes every container, then network, then (when
+	// volumes is set) volume carrying both LabelManaged=true and
+	// LabelProject=project. An empty project is rejected without touching the
+	// engine. Resources that vanish mid-prune are ignored.
+	PruneProject(ctx context.Context, project string, volumes bool) (PruneReport, error)
 }

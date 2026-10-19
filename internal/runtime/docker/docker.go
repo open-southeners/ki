@@ -5,6 +5,7 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -235,6 +236,71 @@ func (d *Docker) Logs(ctx context.Context, id string, opts runtime.LogOptions, f
 		return err
 	}
 	return stderr.flush()
+}
+
+// PruneProject implements runtime.Runtime.
+func (d *Docker) PruneProject(ctx context.Context, project string, volumes bool) (runtime.PruneReport, error) {
+	var rep runtime.PruneReport
+	if project == "" {
+		return rep, errors.New("prune: project is required")
+	}
+	filters := func() client.Filters {
+		return make(client.Filters).
+			Add("label", runtime.LabelManaged+"=true").
+			Add("label", runtime.LabelProject+"="+project)
+	}
+
+	cs, err := d.cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters()})
+	if err != nil {
+		return rep, mapErr(err, project)
+	}
+	for _, c := range cs.Items {
+		_, err := d.cli.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: volumes})
+		if gone, err := removed(err, c.ID); err != nil {
+			return rep, err
+		} else if !gone {
+			rep.Containers++
+		}
+	}
+
+	ns, err := d.cli.NetworkList(ctx, client.NetworkListOptions{Filters: filters()})
+	if err != nil {
+		return rep, mapErr(err, project)
+	}
+	for _, n := range ns.Items {
+		_, err := d.cli.NetworkRemove(ctx, n.ID, client.NetworkRemoveOptions{})
+		if gone, err := removed(err, n.ID); err != nil {
+			return rep, err
+		} else if !gone {
+			rep.Networks++
+		}
+	}
+
+	if !volumes {
+		return rep, nil
+	}
+	vs, err := d.cli.VolumeList(ctx, client.VolumeListOptions{Filters: filters()})
+	if err != nil {
+		return rep, mapErr(err, project)
+	}
+	for _, v := range vs.Items {
+		_, err := d.cli.VolumeRemove(ctx, v.Name, client.VolumeRemoveOptions{Force: true})
+		if gone, err := removed(err, v.Name); err != nil {
+			return rep, err
+		} else if !gone {
+			rep.Volumes++
+		}
+	}
+	return rep, nil
+}
+
+// removed interprets the error of a removal call: gone reports a resource
+// that no longer existed (raced), which is not an error and not counted.
+func removed(err error, id string) (gone bool, _ error) {
+	if cerrdefs.IsNotFound(err) {
+		return true, nil
+	}
+	return false, mapErr(err, id)
 }
 
 // lineWriter splits a byte stream into lines and hands them to fn.

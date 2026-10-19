@@ -86,6 +86,10 @@ func (f *fakeRuntime) Remove(_ context.Context, id string, force bool) error {
 	return f.id(fmt.Sprintf("remove(%v)", force), id)
 }
 
+func (f *fakeRuntime) PruneProject(_ context.Context, project string, volumes bool) (runtime.PruneReport, error) {
+	return runtime.PruneReport{}, f.record(fmt.Sprintf("prune(%v) %s", volumes, project))
+}
+
 func (f *fakeRuntime) Logs(ctx context.Context, id string, opts runtime.LogOptions, fn func(runtime.LogLine) error) error {
 	f.mu.Lock()
 	f.opts = opts
