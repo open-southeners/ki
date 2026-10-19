@@ -101,7 +101,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -171,6 +171,59 @@ missing lines.
 - Only containers labelled `ki.managed=true` exist as far as the agent is
   concerned; unmanaged ones answer `-32006`, same as missing ones.
 
+### Projects
+
+The `projects` capability covers `projects.create`, `projects.get`,
+`projects.list`, `projects.update`, `projects.verify` and `projects.delete`.
+Schemas are in the OpenRPC document; this section holds what a schema cannot
+say.
+
+- **Trigger.** `branch` and `tag_pattern` are mutually exclusive
+  (`-32602` if both are given). `Project.trigger` has exactly one key once the
+  trigger is known. A project created over SSH without either parameter has
+  `trigger: {}` until `projects.verify` resolves the repository's default
+  branch; an HTTPS project resolves it during create.
+- **Access states.** `status` is `ready` or `pending_access`. Creating an
+  HTTPS project (with or without `token`) probes and clones the repository
+  before anything is stored, so a failure leaves nothing behind. Creating an
+  SSH project cannot clone: the agent generates an Ed25519 deploy key, stores
+  the project as `pending_access` and returns the key in `auth.public_key`.
+  Once the key has been added to the repository as a read-only deploy key, call
+  `projects.verify`: it probes, resolves the default branch, clones (or fetches)
+  and detects the Compose file, then sets `status` to `ready`. If it fails, the
+  error is returned, `status_detail` records why and the status is unchanged.
+  `rotate_deploy_key` in `projects.update` issues a new key and returns the
+  project to `pending_access`.
+- **Secrets are write-only.** Private keys and access tokens are never
+  returned, in any method or error. The only secret a response carries is
+  `webhook_secret`, in the result of `projects.create` and of
+  `projects.update` with `rotate_webhook_secret`; it cannot be read again.
+  `auth.public_key` and `auth.token_user` are not secrets.
+- **Identity.** `slug` (`^[a-z0-9][a-z0-9-]{0,62}$`) and `repo_url` are
+  immutable. Without `slug`, it is derived from the repository name.
+- **Concurrency.** One operation at a time per project; concurrent calls for
+  the same slug queue.
+- **Delete.** `projects.delete` first removes the project's managed
+  containers and networks (and volumes only with `volumes: true`), then the
+  checkout, then the record. If the container engine is unreachable it fails
+  with `-32008` and nothing is removed, so it can be retried. The result counts
+  what was removed.
+
+`RepositoryError` (`-32010`) carries `data: {reason, detail}`:
+
+| `reason` | Meaning |
+|---|---|
+| `invalid_url` | The URL is not an accepted `https://`, `ssh://` or `user@host:path` form, or embeds credentials (use `token`) |
+| `unreachable` | The Git server could not be contacted (DNS, network, timeout) |
+| `auth_failed` | Credentials were rejected or missing; for SSH keys, the deploy key has not been added yet |
+| `not_found` | The repository does not exist or is invisible to these credentials |
+| `ref_not_found` | The requested branch (or the remote's default branch) does not exist |
+| `compose_not_found` | No Compose file was found, or the explicit `compose_file` is missing or escapes the checkout |
+| `failed` | Any other Git failure; `detail` has the last line of Git's output |
+
+`detail` is human readable and has token text redacted. `AlreadyExists`
+(`-32009`) is returned by `projects.create` when the slug is taken.
+
 ## Errors
 
 Errors are JSON-RPC error objects `{code, message, data?}`.
@@ -187,9 +240,11 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32003 | Incompatible version | Major version mismatch; `data.supported` is the agent's version; the connection is closed |
 | -32004 | Subscription not found | Unknown subscription id on unsubscribe |
 | -32005 | Overloaded | Reserved; not currently returned |
-| -32006 | Not found | Container does not exist or is not managed by ki |
+| -32006 | Not found | Container or project does not exist (containers not managed by ki count as missing) |
 | -32007 | Policy violation | Reserved for deploys; `data.violations` lists `{service, rule, detail}` |
 | -32008 | Runtime unavailable | The container engine cannot be reached |
+| -32009 | Already exists | `projects.create` with a slug that is taken |
+| -32010 | Repository error | A Git operation failed; `data` is `{reason, detail}`, see [Projects](#projects) |
 
 ## Versioning
 
@@ -216,7 +271,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}

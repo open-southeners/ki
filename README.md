@@ -4,9 +4,15 @@ An open-source (Apache-2.0) background agent that manages one Linux server's
 services for an external control plane. It is written in Go and ships as a
 single static binary.
 
-**Status: pre-alpha.** The service, configuration, systemd packaging and the
-JSON-RPC endpoint and Docker container management exist; deploying compose
-projects is under development.
+**Status: pre-alpha.** The service, configuration, systemd packaging, the
+JSON-RPC endpoint, Docker container management, Git-backed projects and the
+command-line client exist; deploying compose projects is under development.
+
+## Prerequisites
+
+On the server: Docker with the Compose plugin, `git` and an `ssh` client (the
+agent shells out to them). The container image already includes `git` and
+`openssh-client`.
 
 ## Build
 
@@ -108,6 +114,72 @@ engine is unreachable, methods fail with `-32008` until it is back.
 container stops, a final `{eof: true}` update arrives and the subscription
 closes. Subscriptions cannot be resumed by sequence number: after a reconnect,
 subscribe again with `since` set to the time of the last line received.
+
+## Projects
+
+A project is a Git repository with a Compose file that the agent keeps checked
+out under its data directory. Create one from a URL; the agent infers the rest:
+
+```sh
+ki-agent projects create https://github.com/acme/app.git
+```
+
+The slug comes from the repository name (override with `--slug`), the
+deployment trigger is the repository's default branch (`--branch NAME` or
+`--tags GLOB` to change it) and the Compose file is the first of `compose.yaml`,
+`compose.yml`, `docker-compose.yaml`, `docker-compose.yml` (`--compose PATH` to
+choose another). Nothing is stored if the clone fails.
+
+**Private repositories** use one of two credentials:
+
+- **Deploy key (SSH URLs).** `ki-agent projects create git@github.com:acme/app.git`
+  makes the agent generate a key and print its public half. The project starts
+  as `pending_access`; add the key to the repository as a read-only deploy key,
+  then run `ki-agent projects verify app` to clone it and mark it `ready`.
+- **Access token (HTTPS URLs).** Pass it on standard input or from a file so it
+  never reaches the process list: `ki-agent projects create URL --token-stdin`
+  or `--token-file PATH` (`--token-user` if the host wants a username other
+  than `x-access-token`).
+
+Keys and tokens are encrypted at rest and never returned by the API. Create
+also prints a **webhook** path and secret, shown only once; configure it in
+GitHub (content type `application/json`, "push" event) or GitLab ("Push events"
+and "Tag push events"). Rotate it with `projects update --rotate-webhook-secret`.
+Receiving webhooks and deploying are still under development.
+
+`projects delete` removes the project's containers and networks, then its
+checkout and record. Volumes are kept unless you pass `--volumes`. It asks you
+to type the slug (`--yes` skips this) and aborts without removing anything if
+Docker is unreachable.
+
+### Command-line client
+
+The same binary talks to a running agent over its Unix socket:
+
+| Command | Purpose |
+|---|---|
+| `ki-agent status` | Agent version and uptime, control-plane state, engine, project count |
+| `ki-agent projects create <git-url>` | Create a project (`--slug`, `--branch`/`--tags`, `--compose`, `--token-stdin`/`--token-file`, `--token-user`) |
+| `ki-agent projects list` / `get <slug>` | Show projects |
+| `ki-agent projects verify <slug>` | Check access, clone or update the checkout |
+| `ki-agent projects update <slug>` | Change trigger, Compose file or credentials; `--rotate-webhook-secret`, `--rotate-deploy-key` |
+| `ki-agent projects delete <slug>` | Delete (`--volumes`, `--yes`) |
+| `ki-agent logs <container>` | Follow logs (`--tail`, `--since`, `--timestamps`) |
+
+`--socket PATH` selects the socket (default: `KI_SOCKET_PATH`, then
+`socket.path` from the config file, then `/run/ki-agent/ki.sock`). Every client
+command accepts `--json` to print the raw result. You need access to the socket:
+add your user to the `ki-agent` group or use `sudo`.
+
+### Data directory
+
+```
+<data_dir>/state.db            SQLite database (projects)
+<data_dir>/secret.key          key that encrypts stored credentials (0600; back it up)
+<data_dir>/projects/<slug>/    each project's Git checkout
+<data_dir>/git/                Git's home directory and SSH known_hosts
+<data_dir>/tmp/                staging area for clones
+```
 
 ### Safety policy (upcoming)
 
