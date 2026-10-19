@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ki-agent /usr/local/bin/ki-agent
 ENTRYPOINT ["/usr/local/bin/ki-agent"]
