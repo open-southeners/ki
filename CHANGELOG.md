@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **One-line installer**: `curl -fsSL .../releases/latest/download/install.sh | sudo sh` installs the latest release for amd64 or arm64, creates the `ki-agent` user and group, installs and starts the systemd service and writes a default config only if none exists. Re-running it upgrades and keeps your config; `--version`, `--with-docker`, `--enroll [URL]`, `--no-start` and `--add-user` adjust it. The sha256 checksum is always verified, and the cosign signature too when `cosign` is installed.
+- **Signed releases**: tagged versions publish Linux amd64 and arm64 archives, `checksums.txt` and a keyless cosign signature on GitHub Releases.
+- **Device-flow enrollment**: `ki-agent enroll [URL]` prints a code to approve in a browser, then stores the credentials and connects to the control plane without a restart; `--force` enrolls again and `ki-agent unenroll` forgets the enrollment. Credentials are kept in `control-plane.json` in the data directory (mode 0600) and replace `control_plane.url` and `control_plane.token_file` while present.
+- `enrollment.start`, `enrollment.wait` and `enrollment.remove` methods behind a new `enrollment` capability, plus error `-32011` with a `reason` such as `denied`, `expired` or `unreachable`. They work only on the local Unix socket; other transports get `-32001`.
+- `ki-agent status` and `agent.info` report whether the control-plane connection comes from the config or from enrollment (`control_plane.source`).
+- The example control plane serves the enrollment endpoints with `-enroll`, and `docs/protocol.md` specifies what a control plane must implement.
 - **Projects**: `projects.create` registers a Git repository, inferring the
   slug, default branch and Compose file, and returns a webhook path and secret
   that is shown only once. `projects.get`, `projects.list`, `projects.update`,
@@ -101,3 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `NoNewPrivileges`, `PrivateTmp` and `ProtectHome` enabled.
 - **Development stack**: a `Dockerfile` and a Compose file that runs the
   agent next to a Docker-in-Docker sidecar on the `devmesh` network.
+
+### Changed
+
+- The systemd service now runs as a dedicated `ki-agent` user and group instead of root; the CLI socket is accessible to members of the `ki-agent` group. Existing manual installs need that user created (the installer does it).

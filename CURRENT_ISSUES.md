@@ -145,14 +145,12 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **Fix:** hold the pump until the response is written (e.g. a start gate released
   after the response is enqueued), then relax the docs.
 
-## Reserved error codes are never returned (M1b)
+## Reserved error code −32005 is never returned (M1b)
 
-- **Where:** `internal/rpc/errors.go`, `api/openrpc.json` (−32001 Unauthorized,
-  −32005 Overloaded).
-- **What:** defined and documented as "reserved"; auth fails at HTTP level and no
-  overload path exists yet.
-- **Fix:** use −32005 when the per-peer concurrency cap lands, or drop both codes
-  before 1.0.
+- **Where:** `internal/rpc/errors.go`, `api/openrpc.json` (−32005 Overloaded).
+- **What:** still defined and documented as reserved; no overload path exists yet. (−32001
+  Unauthorized is now used for local-only methods since M3b.)
+- **Fix:** use −32005 when the per-peer concurrency cap lands, or drop it before 1.0.
 
 ## Outbound contract leaves some behaviour unspecified (M1b)
 
@@ -241,3 +239,27 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **Where:** `internal/cli/projects.go` / `internal/projects` (empty string = unchanged).
 - **What:** the CLI sends an empty branch, the server ignores it, and the command reports success.
 - **Fix:** reject empty `--branch`/`--tags`/`--compose` values in the CLI with a clear message.
+
+## Example control plane advertises http:// discovery URLs behind a TLS proxy (M3b)
+
+- **Where:** `examples/control-plane/enroll.go` (discovery document built from `Host` + `r.TLS`).
+- **What:** behind a TLS-terminating proxy the discovery document lists `http://` endpoints, which
+  the agent rejects for non-loopback hosts, so enrollment fails with `invalid_response`.
+- **Fix:** derive endpoint URLs from a `-public-enroll-url` flag (or honour `X-Forwarded-Proto`
+  behind a trusted proxy); the example is for local development, so low priority.
+
+## Config with `control_plane.url` but no `token_file` fails to load even when enrolled (M3b)
+
+- **Where:** `internal/config/config.go` (`ControlPlane.validate` requires the token file).
+- **What:** an enrollment credential file replaces `url`/`token_file` at runtime, but a config that
+  sets `url` without `token_file` is still rejected at load, before the credential file is read.
+- **Fix:** require the token file only when no credential file exists (check in `run.go` after
+  loading credentials), or defer the token check to the control-plane manager.
+
+## Enrollment `expires_at` varies between runs of the example (M3b)
+
+- **Where:** `examples/control-plane/enroll.go` (`expires_in`) and `internal/enroll` (`ExpiresAt`).
+- **What:** in the M3b smoke test the reported expiry was ~20 min in one run and ~10 min in
+  another, although the example issues 10-minute codes. Cosmetic, cause not investigated.
+- **Fix:** check how `expires_in` is computed on both sides (and the 30-minute cap) and add a test
+  asserting `ExpiresAt ≈ now + expires_in`.
