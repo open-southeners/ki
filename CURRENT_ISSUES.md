@@ -170,3 +170,82 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   struct (it was only verified manually during the M1b smoke test).
 - **Fix:** add a config test that loads the example (with paths overridden) and
   asserts it validates.
+
+## Project delete without `volumes` orphans anonymous volumes (M3)
+
+- **Where:** `internal/runtime/docker/docker.go` (`PruneProject`), `projects.delete`.
+- **What:** with `volumes=false` the containers' anonymous volumes are kept (they can hold real
+  data, e.g. the `postgres` image's `VOLUME`), but they carry no ki labels, so nothing can find
+  or prune them afterwards; they leak until a manual `docker volume prune`.
+- **Fix:** in M4, have the deploy override give every service volume a labelled named volume
+  (or label anonymous ones), so `PruneProject` can find them later; alternatively report the
+  kept anonymous volume names in the delete result.
+
+## Git URLs: bracketed IPv6 scp-style form unsupported (M3)
+
+- **Where:** `internal/git/url.go` (`ParseURL`).
+- **What:** `user@[::1]:repo.git` is rejected; scp-style URLs also require a `user@`
+  (deliberately, to avoid `ext:`/local-path ambiguity). `ssh://user@[::1]/repo.git` works.
+- **Fix:** acceptable; document "use `ssh://` for IPv6 hosts" if anyone hits it.
+
+## `--socket` flag shows up on `ki-agent run` (M3)
+
+- **Where:** `internal/cli/root.go` (persistent `--socket` flag).
+- **What:** the flag is persistent on the root command, so `ki-agent run --help` lists it although
+  the daemon takes its socket path from config only.
+- **Fix:** move it to a persistent flag on a client-commands group, or make `run` honour it as an
+  override of `socket.path`.
+
+## CLI client loses gap ranges in subscriptions (M3)
+
+- **Where:** `internal/client/client.go` (`Subscribe` callback `fn(seq, data)`).
+- **What:** a `gap` marker reaches the callback as an update with empty `data`; consumers infer
+  the dropped count from the previous `seq`. A seq that never arrives is skipped after 500 ms,
+  which assumes streams start at seq 1.
+- **Fix:** pass a typed update (`Update{Seq, Data, Gap *struct{From, To int64}}`) to the
+  callback; start reordering from the first seq received instead of assuming 1.
+
+## `projects.update` cannot clear optional fields (M3)
+
+- **Where:** `internal/projects/service.go` (`UpdateParams`: empty string = unchanged).
+- **What:** once `compose_file` or `token_user` is set explicitly there is no way back to
+  auto-detection / the default token user short of deleting the project.
+- **Fix:** accept JSON `null` vs absent (pointer fields) or an explicit `reset: ["compose_file"]`.
+
+## HTTPS-token create path has no success-path test (M3)
+
+- **Where:** `internal/projects/service_test.go`, `internal/git`.
+- **What:** tests have no HTTPS git server, so `https_token` create is only exercised against an
+  unreachable host; the header construction is unit-tested separately.
+- **Fix:** add a test with `httptest.NewTLSServer` wrapping `git http-backend` (CGI) that checks
+  the `Authorization` header, with the test CA trusted via `GIT_SSL_CAINFO`.
+
+## Project writes must all go through the per-slug lock (M4)
+
+- **Where:** `internal/projects/service.go` (in-memory per-slug locks), `store.UpdateProject`
+  (overwrites every column).
+- **What:** a writer outside the service lock (e.g. M4 deploy status updates) could clobber
+  concurrent project changes with a stale struct.
+- **Fix:** route M4 deploy updates through `projects.Service` under the same lock, or keep deploy
+  state in its own table.
+
+## Server test `stubRuntime` panics on unimplemented methods (M3)
+
+- **Where:** `internal/server/containers_test.go` (`stubRuntime` embeds `runtime.Runtime`).
+- **What:** calling `PruneProject` (or any method not overridden) on it hits a nil interface and
+  panics instead of failing the test clearly.
+- **Fix:** implement the missing methods returning an error, or drop the embedding.
+
+## Protocol version not bumped for additive methods (M3)
+
+- **Where:** `api/openrpc.json` `info.version`, `api.ProtocolVersion` (both `1.0.0`).
+- **What:** `docs/protocol.md` says additive changes (new methods, capabilities) bump the minor
+  version, but neither M2 (`containers.*`) nor M3 (`projects.*`) did.
+- **Fix:** decide before the first release: either declare the protocol frozen at `1.0.0` as of the
+  first tagged release (and say so in the docs), or bump to `1.1.0` now and from here on.
+
+## `projects update --branch ""` is a silent no-op (M3)
+
+- **Where:** `internal/cli/projects.go` / `internal/projects` (empty string = unchanged).
+- **What:** the CLI sends an empty branch, the server ignores it, and the command reports success.
+- **Fix:** reject empty `--branch`/`--tags`/`--compose` values in the CLI with a clear message.

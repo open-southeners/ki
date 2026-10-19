@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Projects**: `projects.create` registers a Git repository, inferring the
+  slug, default branch and Compose file, and returns a webhook path and secret
+  that is shown only once. `projects.get`, `projects.list`, `projects.update`,
+  `projects.verify` and `projects.delete` manage them; `agent.hello` advertises
+  the `projects` capability.
+- **Private repositories**: SSH URLs get a generated deploy key and wait in
+  `pending_access` until `projects.verify` confirms the key was added; HTTPS
+  repositories take an access token. Keys and tokens are encrypted at rest and
+  never returned by the API.
+- **Project deletion** removes the project's containers and networks (and
+  volumes with `volumes: true`) before its checkout, and changes nothing if the
+  container engine is unreachable.
+- New errors `-32009` AlreadyExists and `-32010` RepositoryError (with a
+  `reason` such as `auth_failed` or `compose_not_found`), documented in the
+  OpenRPC specification and `docs/protocol.md`.
+- **Command-line client**: `ki-agent status`, `ki-agent projects
+  create|list|get|verify|update|delete` and `ki-agent logs <container>` talk to
+  the running agent over its Unix socket (`--socket`, `KI_SOCKET_PATH` or
+  `socket.path`), print `--json` on request, and take tokens only from
+  `--token-stdin` or `--token-file`.
+- The agent now keeps its state in `state.db` and `secret.key` in the data
+  directory, with project checkouts under `projects/`. `git` and an `ssh`
+  client are required on the host and are included in the container image.
 - **Outbound control-plane connection**: with `control_plane.url` set (env
   `KI_CONTROL_PLANE_*`), the agent dials out to a control plane over
   `wss://` (plain `ws://` only for loopback hosts) with a bearer token from
