@@ -6,12 +6,16 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/ki-agent run
+User=ki-agent
+Group=ki-agent
 Restart=on-failure
 RestartSec=2s
 
 # /run/ki-agent (socket) and /var/lib/ki-agent (data) are managed by systemd.
 RuntimeDirectory=ki-agent
+RuntimeDirectoryMode=0750
 StateDirectory=ki-agent
+StateDirectoryMode=0750
 
 # Sandboxing: the data directory is the only writable path.
 ProtectSystem=strict
