@@ -17,6 +17,8 @@ import (
 	"github.com/open-southeners/ki-agent/internal/config"
 	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/controlplane"
+	"github.com/open-southeners/ki-agent/internal/enroll"
+	"github.com/open-southeners/ki-agent/internal/enrollment"
 	"github.com/open-southeners/ki-agent/internal/git"
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
@@ -112,6 +114,10 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return err
 	}
 
+	tlsCfg, err := cfg.ControlPlane.TLSConfig()
+	if err != nil {
+		return err
+	}
 	router := rpc.NewRouter()
 	ag := agent.New()
 	ag.Register(router)
@@ -121,31 +127,32 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	if err != nil {
 		return err
 	}
-	var conn *controlplane.Connector
-	if cp := cfg.ControlPlane; cp.Enabled() {
-		if conn, err = newConnector(cp, srv, logger); err != nil {
-			return err
-		}
-		ag.SetControlPlane(conn.StatusAny)
+	mgr := controlplane.NewManager(logger)
+	enr := enrollment.New(enrollment.Options{
+		Client:  enroll.NewClient(enroll.Options{TLSConfig: tlsCfg, UserAgent: "ki-agent/" + version.Version}),
+		Manager: mgr, Config: cfg.ControlPlane, DataDir: cfg.DataDir, DefaultURL: version.EnrollURL,
+		Serve:  func(ctx context.Context, c rpc.Conn) { srv.ServeConn(ctx, rpc.TransportControlPlane, c) },
+		Logger: logger,
+	})
+	enr.Register(router)
+	ag.SetControlPlane(mgr.StatusAny)
+	if err := enr.Apply(); err != nil {
+		return err
 	}
 	if err := srv.Listen(); err != nil {
 		return err
 	}
 
-	// On shutdown the connector stops dialing at once and its live connection
+	// On shutdown the manager stops dialing at once and its live connection
 	// is closed by the server's peer tracking. cpCtx also ends it if Serve
 	// fails without ctx being cancelled.
 	cpCtx, stopCP := context.WithCancel(ctx)
 	defer stopCP()
 	cpDone := make(chan struct{})
-	if conn != nil {
-		go func() {
-			defer close(cpDone)
-			_ = conn.Run(cpCtx)
-		}()
-	} else {
-		close(cpDone)
-	}
+	go func() {
+		defer close(cpDone)
+		_ = mgr.Run(cpCtx)
+	}()
 	err = srv.Serve(ctx)
 	stopCP()
 	<-cpDone
@@ -154,26 +161,4 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	logger.Info("ki-agent stopped")
 	return nil
-}
-
-func newConnector(cp config.ControlPlane, srv *server.Server, logger *slog.Logger) (*controlplane.Connector, error) {
-	token, err := cp.Token()
-	if err != nil {
-		return nil, err
-	}
-	tlsCfg, err := cp.TLSConfig()
-	if err != nil {
-		return nil, err
-	}
-	return controlplane.New(controlplane.Options{
-		URL:               cp.URL,
-		Token:             token,
-		TLSConfig:         tlsCfg,
-		HeartbeatInterval: cp.HeartbeatInterval,
-		HeartbeatTimeout:  cp.HeartbeatTimeout,
-		ReconnectMin:      cp.ReconnectMin,
-		ReconnectMax:      cp.ReconnectMax,
-		Serve:             func(ctx context.Context, c rpc.Conn) { srv.ServeConn(ctx, "control-plane", c) },
-		Logger:            logger,
-	})
 }

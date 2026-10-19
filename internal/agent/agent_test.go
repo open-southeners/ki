@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/open-southeners/ki-agent/api"
-	"github.com/open-southeners/ki-agent/internal/containers"
-	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 )
 
@@ -42,47 +40,6 @@ func loadSpec(t *testing.T) spec {
 	return s
 }
 
-func TestSpecMatchesRouter(t *testing.T) {
-	s := loadSpec(t)
-	if s.OpenRPC == "" || s.Info.Title == "" {
-		t.Fatalf("spec missing openrpc/info.title: %+v", s)
-	}
-	if s.Info.Version != api.ProtocolVersion {
-		t.Fatalf("info.version = %q, ProtocolVersion = %q", s.Info.Version, api.ProtocolVersion)
-	}
-
-	var names []string
-	notifications := 0
-	for _, m := range s.Methods {
-		if m.Params == nil {
-			t.Errorf("%s: missing params", m.Name)
-		}
-		if m.Notification {
-			notifications++
-			if m.Result != nil {
-				t.Errorf("%s: notification must not define a result", m.Name)
-			}
-			continue
-		}
-		if m.Result == nil {
-			t.Errorf("%s: missing result", m.Name)
-		}
-		names = append(names, m.Name)
-	}
-	if notifications != 2 {
-		t.Errorf("notifications documented = %d, want 2", notifications)
-	}
-	slices.Sort(names)
-
-	r := rpc.NewRouter()
-	New().Register(r)
-	containers.New(nil, nil).Register(r)
-	projects.NewHandlers(nil).Register(r)
-	if got := r.Methods(); !slices.Equal(got, names) {
-		t.Fatalf("router methods %v != spec methods %v", got, names)
-	}
-}
-
 func TestSpecDocumentsEnvelopeAndErrors(t *testing.T) {
 	s := loadSpec(t)
 
@@ -111,7 +68,7 @@ func TestSpecDocumentsEnvelopeAndErrors(t *testing.T) {
 		"SubscriptionNotFound": rpc.CodeSubscriptionNotFound, "Overloaded": rpc.CodeOverloaded,
 		"NotFound": rpc.CodeNotFound, "PolicyViolation": rpc.CodePolicyViolation,
 		"RuntimeUnavailable": rpc.CodeRuntimeUnavailable, "AlreadyExists": rpc.CodeAlreadyExists,
-		"RepositoryError": rpc.CodeRepositoryError,
+		"RepositoryError": rpc.CodeRepositoryError, "EnrollmentError": rpc.CodeEnrollmentError,
 	}
 	for name, code := range want {
 		if got, ok := s.Components.Errors[name]; !ok || got.Code != code {

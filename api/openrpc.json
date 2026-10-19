@@ -887,6 +887,77 @@
           "$ref": "#/components/errors/RuntimeUnavailable"
         }
       ]
+    },
+    {
+      "name": "enrollment.start",
+      "summary": "Start enrolling the agent with a control plane (local socket only).",
+      "description": "Local-only: any transport other than the Unix socket is refused with Unauthorized. Discovers the enrollment endpoints under url, requests a device code and returns the code the operator must approve. Polling then runs in the background, bound to this connection: it is cancelled when the connection closes. Call enrollment.wait on the same connection to learn the outcome. On approval the credentials are stored in the data directory and the outbound control-plane connection starts at once, replacing any configured one. Only one enrollment may be in progress per agent.",
+      "x-local-only": true,
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "url",
+          "description": "Enrollment base URL (https; http only for loopback hosts). Defaults to the URL built into the binary; without either the call fails with InvalidParams.",
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "force",
+          "description": "Enroll again even if credentials exist. Defaults to false.",
+          "schema": { "type": "boolean" }
+        }
+      ],
+      "result": {
+        "name": "authorization",
+        "schema": { "$ref": "#/components/schemas/EnrollmentAuthorization" }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/AlreadyExists" },
+        { "$ref": "#/components/errors/EnrollmentError" }
+      ]
+    },
+    {
+      "name": "enrollment.wait",
+      "summary": "Wait for the enrollment started on this connection to finish (local socket only).",
+      "description": "Local-only. Blocks until the operator approves the code and the credentials are stored, then returns the control plane URL. Fails with EnrollmentError (reason denied, expired, unreachable, invalid_response or failed) if the enrollment does not succeed, and with InvalidParams if this connection has no enrollment in progress.",
+      "x-local-only": true,
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "enrolled",
+        "schema": {
+          "type": "object",
+          "required": ["control_plane_url"],
+          "properties": {
+            "control_plane_url": { "type": "string", "description": "WebSocket endpoint the agent now connects to." }
+          }
+        }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/EnrollmentError" }
+      ]
+    },
+    {
+      "name": "enrollment.remove",
+      "summary": "Forget the enrollment and stop its connection (local socket only).",
+      "description": "Local-only. Deletes the stored credentials and stops the enrolled control-plane connection, cancelling any enrollment in progress. If the config file defines a control plane, the agent connects to that one instead. Fails with NotFound (\"not enrolled\") when there are no stored credentials.",
+      "x-local-only": true,
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "removed",
+        "schema": { "type": "object", "additionalProperties": false }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/NotFound" }
+      ]
     }
   ],
   "components": {
@@ -945,11 +1016,23 @@
         "required": ["state"],
         "properties": {
           "state": { "type": "string", "enum": ["disabled", "connecting", "connected", "backoff"] },
+          "source": { "type": "string", "enum": ["config", "enrollment"], "description": "Where the active settings came from; absent while disabled. Stored enrollment credentials take precedence over the config file." },
           "url": { "type": "string", "description": "Control plane endpoint without userinfo, query or fragment." },
           "connected_since": { "type": "string", "format": "date-time", "description": "Present while state is connected." },
           "last_error": { "type": "string", "description": "Why the most recent connection attempt failed or the connection ended." },
           "reconnects": { "type": "integer", "description": "Connection attempts made after the first one." },
           "next_attempt": { "type": "string", "format": "date-time", "description": "Present while state is backoff." }
+        }
+      },
+      "EnrollmentAuthorization": {
+        "type": "object",
+        "description": "A pending device-flow authorization the operator must approve.",
+        "required": ["user_code", "verification_uri", "expires_at"],
+        "properties": {
+          "user_code": { "type": "string", "description": "Short code to enter or confirm at the verification page." },
+          "verification_uri": { "type": "string", "description": "Page where the operator enters the code." },
+          "verification_uri_complete": { "type": "string", "description": "Same page with the code filled in; present when the control plane provides it." },
+          "expires_at": { "type": "string", "format": "date-time", "description": "When the code stops being valid." }
         }
       },
       "Heartbeat": {
@@ -1379,7 +1462,7 @@
       "MethodNotFound": { "code": -32601, "message": "Method not found" },
       "InvalidParams": { "code": -32602, "message": "Invalid params" },
       "InternalError": { "code": -32603, "message": "Internal error" },
-      "Unauthorized": { "code": -32001, "message": "Unauthorized" },
+      "Unauthorized": { "code": -32001, "message": "Unauthorized", "data": "Returned for local-only methods (enrollment.*) called over any transport other than the Unix socket." },
       "HandshakeRequired": { "code": -32002, "message": "Handshake required: call agent.hello first" },
       "IncompatibleVersion": { "code": -32003, "message": "Incompatible protocol version" },
       "SubscriptionNotFound": { "code": -32004, "message": "Subscription not found" },
@@ -1388,7 +1471,8 @@
       "PolicyViolation": { "code": -32007, "message": "Policy violation", "data": "Object {violations: [{service, rule, detail}]}; see the PolicyViolations schema." },
       "RuntimeUnavailable": { "code": -32008, "message": "Container runtime unavailable" },
       "AlreadyExists": { "code": -32009, "message": "Project already exists" },
-      "RepositoryError": { "code": -32010, "message": "Repository error", "data": "Object {reason, detail}; reason is one of invalid_url, unreachable, auth_failed, not_found, ref_not_found, compose_not_found, failed." }
+      "RepositoryError": { "code": -32010, "message": "Repository error", "data": "Object {reason, detail}; reason is one of invalid_url, unreachable, auth_failed, not_found, ref_not_found, compose_not_found, failed." },
+      "EnrollmentError": { "code": -32011, "message": "Enrollment error", "data": "Object {reason, detail}; reason is one of unreachable, invalid_response, denied, expired, failed." }
     }
   }
 }
