@@ -251,6 +251,12 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 `api.ProtocolVersion` (`info.version` of the OpenRPC document, currently
 `1.0.0`) follows [semantic versioning](https://semver.org/).
 
+Until the first tagged release of the agent, the protocol is still taking
+shape and stays at `1.0.0` whatever changes; clients should rely on
+`capabilities`, not the version, to detect methods. The version is **frozen at
+`1.0.0` as of the first tagged release**, and from then on the rules below
+apply.
+
 - Additive changes (new methods, new optional params, new result fields, new
   capabilities) bump the **minor** version. Clients must ignore unknown fields
   in results and notifications.

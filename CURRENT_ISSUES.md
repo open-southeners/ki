@@ -236,14 +236,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   panics instead of failing the test clearly.
 - **Fix:** implement the missing methods returning an error, or drop the embedding.
 
-## Protocol version not bumped for additive methods (M3)
-
-- **Where:** `api/openrpc.json` `info.version`, `api.ProtocolVersion` (both `1.0.0`).
-- **What:** `docs/protocol.md` says additive changes (new methods, capabilities) bump the minor
-  version, but neither M2 (`containers.*`) nor M3 (`projects.*`) did.
-- **Fix:** decide before the first release: either declare the protocol frozen at `1.0.0` as of the
-  first tagged release (and say so in the docs), or bump to `1.1.0` now and from here on.
-
 ## `projects update --branch ""` is a silent no-op (M3)
 
 - **Where:** `internal/cli/projects.go` / `internal/projects` (empty string = unchanged).
