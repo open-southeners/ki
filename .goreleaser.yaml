@@ -1,0 +1,66 @@
+# GoReleaser configuration (v2). Releases are cut by .github/workflows/release.yml.
+version: 2
+
+project_name: ki-agent
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: ki-agent
+    main: ./cmd/ki-agent
+    binary: ki-agent
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/open-southeners/ki-agent/internal/version.Version={{ .Version }}
+      - -X github.com/open-southeners/ki-agent/internal/version.Commit={{ .Commit }}
+      - -X github.com/open-southeners/ki-agent/internal/version.EnrollURL={{ index .Env "KI_ENROLL_URL" }}
+
+# No version in the archive name, so releases/latest/download/<name> works.
+archives:
+  - id: ki-agent
+    formats: [tar.gz]
+    name_template: "ki-agent_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - src: packaging/systemd/ki-agent.service
+        dst: ki-agent.service
+      - src: packaging/config.example.yaml
+        dst: config.example.yaml
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+  extra_files:
+    - glob: ./install.sh
+
+# install.sh is published as a plain release asset.
+release:
+  github:
+    owner: open-southeners
+    name: ki-agent
+  extra_files:
+    - glob: ./install.sh
+
+# Keyless signature (bundle) over the checksums file; skipped with --skip=sign.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --yes
+      - --bundle=${signature}
+      - ${artifact}
+    artifacts: checksum
+    output: true
+
+changelog:
+  disable: true
