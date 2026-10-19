@@ -15,7 +15,7 @@
 set -eu
 
 DEFAULT_BASE_URL="https://github.com/open-southeners/ki-agent/releases"
-SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki-agent/'
+SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki-agent/\.github/workflows/release\.yml@refs/tags/v'
 SIGN_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 BIN_PATH="/usr/local/bin/ki-agent"
