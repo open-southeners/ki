@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -174,6 +175,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	testPrune(t, ctx, raw, d, suffix)
+	testPruneAnonymousVolumes(t, ctx, raw, d, suffix)
 }
 
 // testPrune checks PruneProject removes labelled resources and spares the rest.
@@ -225,7 +227,7 @@ func testPrune(t *testing.T, ctx context.Context, raw *client.Client, d *Docker,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (runtime.PruneReport{Containers: 1, Networks: 1, Volumes: 1}); rep != want {
+	if want := (runtime.PruneReport{Containers: 1, Networks: 1, Volumes: 1, KeptVolumes: []string{}}); !reflect.DeepEqual(rep, want) {
 		t.Fatalf("PruneProject = %+v, want %+v", rep, want)
 	}
 	if _, err := raw.ContainerInspect(ctx, keepC, client.ContainerInspectOptions{}); err != nil {
@@ -237,7 +239,68 @@ func testPrune(t *testing.T, ctx context.Context, raw *client.Client, d *Docker,
 	if _, err := raw.VolumeInspect(ctx, "ki-it-prune-keepv-"+suffix, client.VolumeInspectOptions{}); err != nil {
 		t.Fatalf("unmanaged volume removed: %v", err)
 	}
-	if rep, err := d.PruneProject(ctx, project, true); err != nil || rep != (runtime.PruneReport{}) {
+	if rep, err := d.PruneProject(ctx, project, true); err != nil || !reflect.DeepEqual(rep, runtime.PruneReport{KeptVolumes: []string{}}) {
 		t.Fatalf("second PruneProject = %+v, %v", rep, err)
+	}
+}
+
+// testPruneAnonymousVolumes checks anonymous volumes are reported and kept
+// without volumes, and removed and counted with volumes.
+func testPruneAnonymousVolumes(t *testing.T, ctx context.Context, raw *client.Client, d *Docker, suffix string) {
+	t.Helper()
+	project := "ittest-anon-" + suffix
+	labels := map[string]string{runtime.LabelManaged: "true", runtime.LabelProject: project}
+	mk := func(name string) string {
+		t.Helper()
+		res, err := raw.ContainerCreate(ctx, client.ContainerCreateOptions{
+			Name: name,
+			Config: &container.Config{
+				Image: "busybox:latest", Labels: labels, Cmd: []string{"sleep", "600"},
+				Volumes: map[string]struct{}{"/data": {}},
+			},
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		t.Cleanup(func() {
+			_, _ = raw.ContainerRemove(context.Background(), res.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		})
+		in, err := raw.ContainerInspect(ctx, res.ID, client.ContainerInspectOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range in.Container.Mounts {
+			if m.Type == "volume" {
+				vol := m.Name
+				t.Cleanup(func() { _, _ = raw.VolumeRemove(context.Background(), vol, client.VolumeRemoveOptions{Force: true}) })
+				return vol
+			}
+		}
+		t.Fatalf("%s has no volume mount", name)
+		return ""
+	}
+
+	vol := mk("ki-it-anon-a-" + suffix)
+	rep, err := d.PruneProject(ctx, project, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (runtime.PruneReport{Containers: 1, KeptVolumes: []string{vol}}); !reflect.DeepEqual(rep, want) {
+		t.Fatalf("PruneProject(false) = %+v, want %+v", rep, want)
+	}
+	if _, err := raw.VolumeInspect(ctx, vol, client.VolumeInspectOptions{}); err != nil {
+		t.Fatalf("kept anonymous volume gone: %v", err)
+	}
+
+	vol = mk("ki-it-anon-b-" + suffix)
+	rep, err = d.PruneProject(ctx, project, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (runtime.PruneReport{Containers: 1, Volumes: 1, KeptVolumes: []string{}}); !reflect.DeepEqual(rep, want) {
+		t.Fatalf("PruneProject(true) = %+v, want %+v", rep, want)
+	}
+	if _, err := raw.VolumeInspect(ctx, vol, client.VolumeInspectOptions{}); err == nil {
+		t.Fatal("anonymous volume survived volumes=true")
 	}
 }

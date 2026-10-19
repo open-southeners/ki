@@ -717,6 +717,9 @@ func (s *Service) Delete(ctx context.Context, slug string, volumes bool) (runtim
 	if err != nil {
 		return runtime.PruneReport{}, err
 	}
+	if rep.KeptVolumes == nil {
+		rep.KeptVolumes = []string{} // the wire schema requires an array
+	}
 	if err := os.RemoveAll(s.checkoutDir(slug)); err != nil {
 		return runtime.PruneReport{}, fmt.Errorf("remove checkout: %w", err)
 	}

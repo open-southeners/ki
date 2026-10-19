@@ -1441,7 +1441,8 @@
         "required": [
           "containers",
           "networks",
-          "volumes"
+          "volumes",
+          "kept_volumes"
         ],
         "properties": {
           "containers": {
@@ -1452,6 +1453,13 @@
           },
           "volumes": {
             "type": "integer"
+          },
+          "kept_volumes": {
+            "type": "array",
+            "description": "Names of anonymous volumes of the removed containers that were kept because volumes were not requested. They carry no project label, so they can no longer be found through the project and may hold data; remove them with docker volume rm. Empty when volumes were removed or there were none.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }

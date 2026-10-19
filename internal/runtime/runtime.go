@@ -103,10 +103,17 @@ type Info struct {
 }
 
 // PruneReport counts the resources PruneProject removed.
+//
+// KeptVolumes names the anonymous volumes of the removed containers that were
+// kept because volumes were not requested. Docker labels them only with
+// com.docker.volume.anonymous and labels are immutable, so once the
+// containers are gone nothing can find them again; reporting the names is the
+// only way to let the user inspect or remove them. It is never nil.
 type PruneReport struct {
-	Containers int `json:"containers"`
-	Networks   int `json:"networks"`
-	Volumes    int `json:"volumes"`
+	Containers  int      `json:"containers"`
+	Networks    int      `json:"networks"`
+	Volumes     int      `json:"volumes"`
+	KeptVolumes []string `json:"kept_volumes"`
 }
 
 // Runtime manages ki-managed containers. Every operation on an id first

@@ -610,7 +610,7 @@ func TestDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep != (runtime.PruneReport{Containers: 2, Networks: 1, Volumes: 3}) {
+	if rep.Containers != 2 || rep.Networks != 1 || rep.Volumes != 3 {
 		t.Errorf("report = %+v", rep)
 	}
 	if strings.Join(e.rt.calls, ",") != "app,volumes" {

@@ -15,6 +15,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 
 	"github.com/open-southeners/ki-agent/internal/runtime"
@@ -22,6 +23,9 @@ import (
 
 // DefaultHost is the Docker endpoint used when none is configured.
 const DefaultHost = "unix:///var/run/docker.sock"
+
+// anonymousVolumeLabel is the only label Docker puts on anonymous volumes.
+const anonymousVolumeLabel = "com.docker.volume.anonymous"
 
 // maxLineBytes is the longest log line delivered; longer lines are truncated.
 const maxLineBytes = 64 << 10
@@ -240,7 +244,7 @@ func (d *Docker) Logs(ctx context.Context, id string, opts runtime.LogOptions, f
 
 // PruneProject implements runtime.Runtime.
 func (d *Docker) PruneProject(ctx context.Context, project string, volumes bool) (runtime.PruneReport, error) {
-	var rep runtime.PruneReport
+	rep := runtime.PruneReport{KeptVolumes: []string{}}
 	if project == "" {
 		return rep, errors.New("prune: project is required")
 	}
@@ -254,13 +258,29 @@ func (d *Docker) PruneProject(ctx context.Context, project string, volumes bool)
 	if err != nil {
 		return rep, mapErr(err, project)
 	}
+	anon := map[string]bool{}
 	for _, c := range cs.Items {
-		_, err := d.cli.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: volumes})
+		vols, err := d.anonymousVolumes(ctx, c.ID)
+		if err != nil {
+			return rep, err
+		}
+		_, err = d.cli.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: volumes})
 		if gone, err := removed(err, c.ID); err != nil {
 			return rep, err
 		} else if !gone {
 			rep.Containers++
 		}
+		for _, v := range vols {
+			anon[v] = true
+		}
+	}
+	names := make([]string, 0, len(anon))
+	for v := range anon {
+		names = append(names, v)
+	}
+	slices.Sort(names)
+	if !volumes {
+		rep.KeptVolumes = names
 	}
 
 	ns, err := d.cli.NetworkList(ctx, client.NetworkListOptions{Filters: filters()})
@@ -279,6 +299,16 @@ func (d *Docker) PruneProject(ctx context.Context, project string, volumes bool)
 	if !volumes {
 		return rep, nil
 	}
+	// Docker removes an anonymous volume with its container unless another
+	// container still uses it; count only those that are really gone.
+	for _, v := range names {
+		_, err := d.cli.VolumeInspect(ctx, v, client.VolumeInspectOptions{})
+		if gone, err := removed(err, v); err != nil {
+			return rep, err
+		} else if gone {
+			rep.Volumes++
+		}
+	}
 	vs, err := d.cli.VolumeList(ctx, client.VolumeListOptions{Filters: filters()})
 	if err != nil {
 		return rep, mapErr(err, project)
@@ -292,6 +322,33 @@ func (d *Docker) PruneProject(ctx context.Context, project string, volumes bool)
 		}
 	}
 	return rep, nil
+}
+
+// anonymousVolumes returns the names of the anonymous volumes mounted into a
+// container. A container or volume that no longer exists yields nothing.
+func (d *Docker) anonymousVolumes(ctx context.Context, id string) ([]string, error) {
+	res, err := d.cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, mapErr(err, id)
+	}
+	var names []string
+	for _, m := range res.Container.Mounts {
+		if m.Type != mount.TypeVolume || m.Name == "" {
+			continue
+		}
+		v, err := d.cli.VolumeInspect(ctx, m.Name, client.VolumeInspectOptions{})
+		if cerrdefs.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return nil, mapErr(err, m.Name)
+		}
+		if _, ok := v.Volume.Labels[anonymousVolumeLabel]; ok {
+			names = append(names, m.Name)
+		}
+	}
+	return names, nil
 }
 
 // removed interprets the error of a removal call: gone reports a resource
