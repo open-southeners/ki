@@ -120,7 +120,7 @@ func projectsStubs(rec *calls) func(*rpc.Router) {
 		r.Handle(stub(rec, "projects.list", `[`+projectJSON+`,`+sshProjectJSON+`]`))
 		r.Handle(stub(rec, "projects.verify", projectJSON))
 		r.Handle(stub(rec, "projects.update", `{"project":`+projectJSON+`}`))
-		r.Handle(stub(rec, "projects.delete", `{"containers":3,"networks":1,"volumes":0}`))
+		r.Handle(stub(rec, "projects.delete", `{"containers":3,"networks":1,"volumes":0,"kept_volumes":[]}`))
 	}
 }
 
@@ -388,6 +388,30 @@ func TestProjectsDelete(t *testing.T) {
 				t.Errorf("prompt missing: %q", errOut)
 			}
 		})
+	}
+}
+
+func TestProjectsDeleteKeptVolumes(t *testing.T) {
+	stubs := func(r *rpc.Router) {
+		r.Handle(stub(&calls{}, "projects.delete", `{"containers":1,"networks":0,"volumes":0,"kept_volumes":["aaa","bbb"]}`))
+	}
+	sock := startAgent(t, stubs)
+	out, _, err := runCLI(t, sock, "", "projects", "delete", "app", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Kept 2 anonymous volume(s) that may hold data:", "  aaa\n", "  bbb\n", "Remove them with: docker volume rm aaa bbb\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q: %q", want, out)
+		}
+	}
+
+	out, _, err = runCLI(t, sock, "", "projects", "delete", "app", "--yes", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"kept_volumes"`) || strings.Contains(out, "docker volume rm") {
+		t.Errorf("json output = %q", out)
 	}
 }
 

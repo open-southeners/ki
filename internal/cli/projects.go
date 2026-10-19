@@ -367,12 +367,23 @@ func newProjectsDeleteCmd(f *flags) *cobra.Command {
 			if asJSON {
 				return printJSON(cmd.OutOrStdout(), raw)
 			}
-			var res struct{ Containers, Networks, Volumes int }
+			var res struct {
+				Containers, Networks, Volumes int
+				KeptVolumes                   []string `json:"kept_volumes"`
+			}
 			if err := json.Unmarshal(raw, &res); err != nil {
 				return fmt.Errorf("decode result: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleted project %s: removed %d containers, %d networks, %d volumes\n",
 				slug, res.Containers, res.Networks, res.Volumes)
+			if n := len(res.KeptVolumes); n > 0 {
+				w := cmd.OutOrStdout()
+				fmt.Fprintf(w, "Kept %d anonymous volume(s) that may hold data:\n", n)
+				for _, v := range res.KeptVolumes {
+					fmt.Fprintf(w, "  %s\n", v)
+				}
+				fmt.Fprintf(w, "Remove them with: docker volume rm %s\n", strings.Join(res.KeptVolumes, " "))
+			}
 			return nil
 		},
 	}
