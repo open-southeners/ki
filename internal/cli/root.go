@@ -12,6 +12,7 @@ import (
 type flags struct {
 	configPath string
 	logLevel   string
+	socket     string
 }
 
 func newRootCmd() *cobra.Command {
@@ -28,8 +29,13 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&f.configPath, "config", config.DefaultPath, "path to the YAML config file")
 	cmd.PersistentFlags().StringVar(&f.logLevel, "log-level", "", "log level: debug, info, warn, error (overrides config)")
 
+	cmd.PersistentFlags().StringVar(&f.socket, "socket", "", "path to the agent's Unix socket for client commands (default: $KI_SOCKET_PATH, then the config file)")
+
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newRunCmd(&f))
+	cmd.AddCommand(newProjectsCmd(&f))
+	cmd.AddCommand(newStatusCmd(&f))
+	cmd.AddCommand(newLogsCmd(&f))
 
 	return cmd
 }
