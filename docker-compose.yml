@@ -49,6 +49,18 @@ services:
     networks:
       - testnet
 
+  # Runs install.sh in a plain Debian container against a fake release; Docker,
+  # git, ssh and systemctl are stubbed:
+  #   docker compose --profile test run --rm install-test
+  install-test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: packaging/test/Dockerfile
+    command: ["sh", "/src/packaging/test/install-test.sh"]
+    volumes:
+      - .:/src:ro
+
 volumes:
   ki-agent-data:
   ki-agent-run:
