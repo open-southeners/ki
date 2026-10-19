@@ -549,6 +549,344 @@
           }
         }
       ]
+    },
+    {
+      "name": "projects.create",
+      "summary": "Register a Git repository as a project.",
+      "description": "Auth is inferred: token given means https_token (the URL must be https); an ssh URL means ssh_key (the agent generates a deploy key); an https URL without a token means none. For none and https_token the repository is probed and cloned before anything is stored: any failure leaves nothing behind. For ssh_key the project is stored as pending_access without cloning and the public key is returned; add it as a read-only deploy key, then call projects.verify. The webhook secret is returned only here and on rotation.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "repo_url",
+          "description": "Repository URL: https://host/path, ssh://[user@]host[:port]/path or user@host:path. Immutable.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "slug",
+          "description": "Lowercase letters, digits and dashes, starting with a letter or digit, at most 63 characters. Defaults to the repository name. Immutable.",
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+          }
+        },
+        {
+          "name": "branch",
+          "description": "Deploy on pushes to this branch. Mutually exclusive with tag_pattern. With neither, the remote default branch is used.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "tag_pattern",
+          "description": "Deploy on tags whose name matches this glob (Go path.Match syntax). Mutually exclusive with branch.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "compose_file",
+          "description": "Compose file path relative to the repository root; absolute paths, .. and symlinks leaving the checkout are rejected. Defaults to the first of compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "token",
+          "description": "https access token for a private repository. Stored encrypted; never returned.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "token_user",
+          "description": "Basic-auth user paired with the token. Defaults to x-access-token.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "created",
+        "schema": {
+          "type": "object",
+          "required": [
+            "project",
+            "webhook_secret"
+          ],
+          "properties": {
+            "project": {
+              "$ref": "#/components/schemas/Project"
+            },
+            "webhook_secret": {
+              "type": "string",
+              "description": "Shared secret for verifying webhook deliveries. Shown only once."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/AlreadyExists"
+        },
+        {
+          "$ref": "#/components/errors/RepositoryError"
+        }
+      ]
+    },
+    {
+      "name": "projects.get",
+      "summary": "Return one project.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "project",
+        "schema": {
+          "$ref": "#/components/schemas/Project"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "projects.list",
+      "summary": "List projects sorted by slug.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "projects",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Project"
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        }
+      ]
+    },
+    {
+      "name": "projects.update",
+      "summary": "Change a project's trigger, compose file or credentials.",
+      "description": "Setting branch clears tag_pattern and vice versa. token and token_user apply only to https_token projects; rotate_deploy_key only to ssh_key projects and puts the project back to pending_access. A compose_file is validated against the checkout when one exists. Omitted parameters leave the setting unchanged.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "branch",
+          "description": "Deploy on pushes to this branch.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "tag_pattern",
+          "description": "Deploy on tags matching this glob.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "compose_file",
+          "description": "Compose file path relative to the repository root.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "token",
+          "description": "https access token for a private repository. Stored encrypted; never returned.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "token_user",
+          "description": "Basic-auth user paired with the token. Defaults to x-access-token.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "rotate_webhook_secret",
+          "description": "Generate a new webhook secret and return it.",
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "rotate_deploy_key",
+          "description": "Generate a new deploy key (ssh_key projects only).",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "updated",
+        "schema": {
+          "type": "object",
+          "required": [
+            "project"
+          ],
+          "properties": {
+            "project": {
+              "$ref": "#/components/schemas/Project"
+            },
+            "webhook_secret": {
+              "type": "string",
+              "description": "The new webhook secret; present only when rotate_webhook_secret was set. Shown only once."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RepositoryError"
+        }
+      ]
+    },
+    {
+      "name": "projects.verify",
+      "summary": "Check repository access and bring the checkout up to date.",
+      "description": "Probes the repository with the stored credentials, resolves the default branch, clones the checkout if there is none (otherwise fetches and checks out the trigger branch head), and locates the compose file. On success the project becomes ready. On failure the status is unchanged, status_detail records the reason, and RepositoryError is returned.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "project",
+        "schema": {
+          "$ref": "#/components/schemas/Project"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RepositoryError"
+        }
+      ]
+    },
+    {
+      "name": "projects.delete",
+      "summary": "Remove a project, its containers and its checkout.",
+      "description": "The project's containers and networks (and volumes when requested) are removed first; if the runtime is unavailable nothing is deleted. Then the checkout and the project record are removed.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "volumes",
+          "description": "Also remove the project's volumes. Defaults to false.",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "removed",
+        "schema": {
+          "$ref": "#/components/schemas/PruneReport"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
     }
   ],
   "components": {
@@ -901,6 +1239,138 @@
             }
           }
         }
+      },
+      "ProjectTrigger": {
+        "type": "object",
+        "description": "What a push must match to deploy. Exactly one member is set once known; both are absent for an ssh_key project created without a branch until projects.verify resolves the default branch.",
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "tag_pattern": {
+            "type": "string",
+            "description": "Glob matched against the tag name."
+          }
+        }
+      },
+      "ProjectAuth": {
+        "type": "object",
+        "description": "How the agent authenticates to the repository. Private keys and tokens are never returned.",
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "none",
+              "ssh_key",
+              "https_token"
+            ]
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Deploy key to authorise on the repository (ssh_key only)."
+          },
+          "token_user": {
+            "type": "string",
+            "description": "Basic-auth user paired with the token (https_token only)."
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "required": [
+          "slug",
+          "repo_url",
+          "trigger",
+          "default_branch",
+          "compose_file",
+          "auth",
+          "webhook",
+          "status",
+          "status_detail",
+          "commit",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "repo_url": {
+            "type": "string"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/ProjectTrigger"
+          },
+          "default_branch": {
+            "type": "string",
+            "description": "Remote HEAD branch; empty until known."
+          },
+          "compose_file": {
+            "type": "string",
+            "description": "Path relative to the checkout; empty until known."
+          },
+          "auth": {
+            "$ref": "#/components/schemas/ProjectAuth"
+          },
+          "webhook": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "HTTP path of the project's webhook endpoint, /hooks/<id>."
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_access",
+              "ready"
+            ]
+          },
+          "status_detail": {
+            "type": "string",
+            "description": "Last access or clone failure, human readable."
+          },
+          "commit": {
+            "type": "string",
+            "description": "Checked-out commit sha; empty when there is no checkout."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PruneReport": {
+        "type": "object",
+        "description": "Counts of resources removed for a project.",
+        "required": [
+          "containers",
+          "networks",
+          "volumes"
+        ],
+        "properties": {
+          "containers": {
+            "type": "integer"
+          },
+          "networks": {
+            "type": "integer"
+          },
+          "volumes": {
+            "type": "integer"
+          }
+        }
       }
     },
     "errors": {
@@ -914,9 +1384,11 @@
       "IncompatibleVersion": { "code": -32003, "message": "Incompatible protocol version" },
       "SubscriptionNotFound": { "code": -32004, "message": "Subscription not found" },
       "Overloaded": { "code": -32005, "message": "Overloaded" },
-      "NotFound": { "code": -32006, "message": "Container not found", "data": "Also returned for containers that exist but are not managed by ki." },
+      "NotFound": { "code": -32006, "message": "Container not found", "data": "Also returned for containers that exist but are not managed by ki. The projects.* methods return it with the message \"project not found\"." },
       "PolicyViolation": { "code": -32007, "message": "Policy violation", "data": "Object {violations: [{service, rule, detail}]}; see the PolicyViolations schema." },
-      "RuntimeUnavailable": { "code": -32008, "message": "Container runtime unavailable" }
+      "RuntimeUnavailable": { "code": -32008, "message": "Container runtime unavailable" },
+      "AlreadyExists": { "code": -32009, "message": "Project already exists" },
+      "RepositoryError": { "code": -32010, "message": "Repository error", "data": "Object {reason, detail}; reason is one of invalid_url, unreachable, auth_failed, not_found, ref_not_found, compose_not_found, failed." }
     }
   }
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/open-southeners/ki-agent/api"
 	"github.com/open-southeners/ki-agent/internal/containers"
+	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 )
 
@@ -76,6 +77,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 	r := rpc.NewRouter()
 	New().Register(r)
 	containers.New(nil, nil).Register(r)
+	projects.NewHandlers(nil).Register(r)
 	if got := r.Methods(); !slices.Equal(got, names) {
 		t.Fatalf("router methods %v != spec methods %v", got, names)
 	}
@@ -108,7 +110,8 @@ func TestSpecDocumentsEnvelopeAndErrors(t *testing.T) {
 		"HandshakeRequired": rpc.CodeHandshakeRequired, "IncompatibleVersion": rpc.CodeIncompatibleVersion,
 		"SubscriptionNotFound": rpc.CodeSubscriptionNotFound, "Overloaded": rpc.CodeOverloaded,
 		"NotFound": rpc.CodeNotFound, "PolicyViolation": rpc.CodePolicyViolation,
-		"RuntimeUnavailable": rpc.CodeRuntimeUnavailable,
+		"RuntimeUnavailable": rpc.CodeRuntimeUnavailable, "AlreadyExists": rpc.CodeAlreadyExists,
+		"RepositoryError": rpc.CodeRepositoryError,
 	}
 	for name, code := range want {
 		if got, ok := s.Components.Errors[name]; !ok || got.Code != code {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -16,9 +17,13 @@ import (
 	"github.com/open-southeners/ki-agent/internal/config"
 	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/controlplane"
+	"github.com/open-southeners/ki-agent/internal/git"
+	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/runtime/docker"
+	"github.com/open-southeners/ki-agent/internal/secret"
 	"github.com/open-southeners/ki-agent/internal/server"
+	"github.com/open-southeners/ki-agent/internal/store"
 	"github.com/open-southeners/ki-agent/internal/version"
 )
 
@@ -57,8 +62,15 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	logger := slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: level}))
 
-	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
-		return fmt.Errorf("create data dir: %w", err)
+	for _, d := range []string{
+		cfg.DataDir,
+		filepath.Join(cfg.DataDir, "tmp"),
+		filepath.Join(cfg.DataDir, "projects"),
+		filepath.Join(cfg.DataDir, "git", "home"),
+	} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			return fmt.Errorf("create data dir: %w", err)
+		}
 	}
 
 	logger.Info("ki-agent starting",
@@ -80,10 +92,31 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	cancelPing()
 
+	box, err := secret.LoadOrCreate(filepath.Join(cfg.DataDir, "secret.key"))
+	if err != nil {
+		return err
+	}
+	db, err := store.Open(filepath.Join(cfg.DataDir, "state.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	gitClient, err := git.New(git.Options{DataDir: cfg.DataDir})
+	if err != nil {
+		return err
+	}
+	projSvc, err := projects.New(projects.Options{
+		Store: db, Secret: box, Git: gitClient, Runtime: rt, DataDir: cfg.DataDir, Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	router := rpc.NewRouter()
 	ag := agent.New()
 	ag.Register(router)
 	containers.New(rt, logger).Register(router)
+	projects.NewHandlers(projSvc).Register(router)
 	srv, err := server.New(server.Options{Config: cfg, Router: router, Logger: logger})
 	if err != nil {
 		return err
