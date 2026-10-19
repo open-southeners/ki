@@ -36,6 +36,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newProjectsCmd(&f))
 	cmd.AddCommand(newStatusCmd(&f))
 	cmd.AddCommand(newLogsCmd(&f))
+	cmd.AddCommand(newEnrollCmd(&f))
+	cmd.AddCommand(newUnenrollCmd(&f))
 
 	return cmd
 }

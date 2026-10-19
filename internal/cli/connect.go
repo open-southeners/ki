@@ -99,6 +99,14 @@ var repositoryHints = map[string]string{
 	"compose_not_found": "pass the Compose file path with --compose PATH",
 }
 
+// enrollmentHints maps an EnrollmentError reason to a one-line suggestion.
+var enrollmentHints = map[string]string{
+	"unreachable":      "the agent host cannot reach the enrollment server; check the URL, DNS and network access",
+	"invalid_response": "the server does not speak the ki-agent enrollment protocol; check the URL",
+	"denied":           "the request was denied on the control plane; run `ki-agent enroll` again to retry",
+	"expired":          "the code was not approved in time; run `ki-agent enroll` again",
+}
+
 // explainError turns JSON-RPC errors into user-facing messages.
 func explainError(err error) error {
 	var re *rpc.Error
@@ -111,6 +119,14 @@ func explainError(err error) error {
 	switch re.Code {
 	case rpc.CodeMethodNotFound:
 		return fmt.Errorf("%s (does the agent version support this command?)", re.Message)
+	case rpc.CodeEnrollmentError:
+		var d struct{ Reason, Detail string }
+		_ = json.Unmarshal(re.Data, &d)
+		msg := re.Message
+		if h := enrollmentHints[d.Reason]; h != "" {
+			msg += "\nhint: " + h
+		}
+		return errors.New(msg)
 	case rpc.CodeRepositoryError:
 		var d struct{ Reason, Detail string }
 		_ = json.Unmarshal(re.Data, &d)

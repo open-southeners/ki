@@ -60,6 +60,7 @@ func newStatusCmd(f *flags) *cobra.Command {
 				ControlPlane struct {
 					State          string `json:"state"`
 					URL            string `json:"url"`
+					Source         string `json:"source"`
 					ConnectedSince string `json:"connected_since"`
 					LastError      string `json:"last_error"`
 				} `json:"control_plane"`
@@ -81,6 +82,9 @@ func newStatusCmd(f *flags) *cobra.Command {
 			}
 			if ai.ControlPlane.URL != "" {
 				cp += " " + ai.ControlPlane.URL
+			}
+			if ai.ControlPlane.Source != "" {
+				cp += " (" + ai.ControlPlane.Source + ")"
 			}
 			if ai.ControlPlane.State == "connected" && ai.ControlPlane.ConnectedSince != "" {
 				cp += " since " + ai.ControlPlane.ConnectedSince
