@@ -215,7 +215,10 @@ and "Tag push events"). Rotate it with `projects update --rotate-webhook-secret`
 Receiving webhooks and deploying are still under development.
 
 `projects delete` removes the project's containers and networks, then its
-checkout and record. Volumes are kept unless you pass `--volumes`. It asks you
+checkout and record. Volumes are kept unless you pass `--volumes`; the
+anonymous ones (for example a database image's data volume) cannot be found
+once their container is gone, so the command lists their names to remove by
+hand. It asks you
 to type the slug (`--yes` skips this) and aborts without removing anything if
 Docker is unreachable.
 

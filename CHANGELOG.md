@@ -110,4 +110,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `projects.delete` now reports the anonymous volumes it kept (`kept_volumes`) when `volumes` is not set, and `ki-agent projects delete` prints their names with the `docker volume rm` command to remove them. With `volumes: true` anonymous volumes are removed and counted in `volumes`.
 - The systemd service now runs as a dedicated `ki-agent` user and group instead of root; the CLI socket is accessible to members of the `ki-agent` group. Existing manual installs need that user created (the installer does it).

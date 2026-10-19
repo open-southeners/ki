@@ -208,7 +208,10 @@ say.
   containers and networks (and volumes only with `volumes: true`), then the
   checkout, then the record. If the container engine is unreachable it fails
   with `-32008` and nothing is removed, so it can be retried. The result counts
-  what was removed.
+  what was removed. Without `volumes: true`, the anonymous volumes of the
+  removed containers are kept and listed in `kept_volumes` (always an array),
+  because they carry no project label and cannot be found afterwards; with
+  `volumes: true` they are removed and counted in `volumes`.
 
 `RepositoryError` (`-32010`) carries `data: {reason, detail}`:
 

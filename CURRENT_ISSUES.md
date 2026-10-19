@@ -169,16 +169,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **Fix:** add a config test that loads the example (with paths overridden) and
   asserts it validates.
 
-## Project delete without `volumes` orphans anonymous volumes (M3)
-
-- **Where:** `internal/runtime/docker/docker.go` (`PruneProject`), `projects.delete`.
-- **What:** with `volumes=false` the containers' anonymous volumes are kept (they can hold real
-  data, e.g. the `postgres` image's `VOLUME`), but they carry no ki labels, so nothing can find
-  or prune them afterwards; they leak until a manual `docker volume prune`.
-- **Fix:** in M4, have the deploy override give every service volume a labelled named volume
-  (or label anonymous ones), so `PruneProject` can find them later; alternatively report the
-  kept anonymous volume names in the delete result.
-
 ## Git URLs: bracketed IPv6 scp-style form unsupported (M3)
 
 - **Where:** `internal/git/url.go` (`ParseURL`).
@@ -217,15 +207,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   unreachable host; the header construction is unit-tested separately.
 - **Fix:** add a test with `httptest.NewTLSServer` wrapping `git http-backend` (CGI) that checks
   the `Authorization` header, with the test CA trusted via `GIT_SSL_CAINFO`.
-
-## Project writes must all go through the per-slug lock (M4)
-
-- **Where:** `internal/projects/service.go` (in-memory per-slug locks), `store.UpdateProject`
-  (overwrites every column).
-- **What:** a writer outside the service lock (e.g. M4 deploy status updates) could clobber
-  concurrent project changes with a stale struct.
-- **Fix:** route M4 deploy updates through `projects.Service` under the same lock, or keep deploy
-  state in its own table.
 
 ## Server test `stubRuntime` panics on unimplemented methods (M3)
 
