@@ -86,7 +86,8 @@ The agent refuses to start on a bad scheme, `ws://` to a non-loopback host,
 `reconnect_min` greater than `reconnect_max`, `heartbeat_timeout` not greater
 than `heartbeat_interval`, or an unreadable `ca_file`. The connection state
 (`disabled`, `connecting`, `connected`, `backoff`, last error, reconnect count)
-is reported in `agent.info` under `control_plane`.
+is reported in `agent.info` under `control_plane`, with `source` saying whether
+the settings came from the config or from [enrollment](#enrollment).
 
 ## Handshake
 
@@ -101,7 +102,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `enrollment`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -224,6 +225,133 @@ say.
 `detail` is human readable and has token text redacted. `AlreadyExists`
 (`-32009`) is returned by `projects.create` when the slug is taken.
 
+## Enrollment
+
+Enrollment connects an agent to a control plane without hand-editing its
+config or copying a token. It is the OAuth 2.0 Device Authorization Grant
+([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)) with a discovery document
+and one extra response field. An operator runs `ki-agent enroll <base-url>` on
+the machine, approves a short code in a browser, and the agent stores the
+credentials and starts its outbound connection. A control plane implements the
+server side described here; [`examples/control-plane`](../examples/control-plane)
+does so with `-enroll`. `B` below is the base URL given to `ki-agent enroll`.
+
+### Flow
+
+1. **Discovery.** `GET B/.well-known/ki-agent-enrollment` answers 200 with
+
+   ```json
+   {"device_authorization_endpoint":"https://cp.example.com/enroll/device","token_endpoint":"https://cp.example.com/enroll/token"}
+   ```
+
+   Both URLs must be absolute and `https://`.
+2. **Device authorization.** The agent POSTs
+   `application/x-www-form-urlencoded` to `device_authorization_endpoint`:
+
+   | Field | Value |
+   |---|---|
+   | `client_id` | always `ki-agent` |
+   | `hostname`, `os`, `arch` | the machine, to help the operator recognise it |
+   | `agent_version`, `protocol` | agent software version and protocol version |
+
+   The answer is 200 JSON as in RFC 8628 section 3.2:
+
+   | Field | Meaning |
+   |---|---|
+   | `device_code` | Opaque secret for polling; use at least 32 random bytes |
+   | `user_code` | What the operator types or confirms; short and unambiguous, for example `BKQ4-7XM2` |
+   | `verification_uri` | Page where the operator enters the code |
+   | `verification_uri_complete` | Optional; same page with the code filled in |
+   | `expires_in` | Seconds until the codes die. The agent stops waiting then, capped at 30 minutes |
+   | `interval` | Optional minimum seconds between polls, default 5 |
+
+   Showing the operator the agent's `hostname`, `os` and `arch` on the approval
+   page is strongly advised: the code alone proves nothing about which machine
+   is asking.
+3. **Token polling.** Every `interval` the agent POSTs to `token_endpoint`:
+   `grant_type=urn:ietf:params:oauth:grant-type:device_code`, `device_code`
+   and `client_id=ki-agent`.
+
+   | Answer | Meaning | Agent behaviour |
+   |---|---|---|
+   | 400 `{"error":"authorization_pending"}` | Not decided yet | Keeps polling every `interval` |
+   | 400 `{"error":"slow_down"}` | Polled too fast | Adds 5 seconds to `interval`, keeps polling |
+   | 400 `{"error":"access_denied"}` | The operator denied it | Fails with reason `denied` |
+   | 400 `{"error":"expired_token"}` | The codes expired | Fails with reason `expired` |
+   | 200 `{"access_token":"…","token_type":"Bearer","control_plane_url":"wss://…"}` | Approved | Stores the credentials and connects |
+
+   Any other answer, malformed JSON or a body over 64 KiB fails the
+   enrollment (`invalid_response`). Return each device code's token **once**.
+4. **Connection.** `access_token` is what the agent then sends as
+   `Authorization: Bearer` on the [outbound connection](#outbound-connection-contract)
+   to `control_plane_url`, so the WebSocket endpoint there must accept it.
+
+All requests carry `User-Agent: ki-agent/<version>` and
+`Accept: application/json`, time out after 30 seconds and are verified against
+the system roots plus `control_plane.ca_file`.
+
+### `control_plane_url`
+
+It is chosen by the server, usually the same for every agent. It follows the
+rules of `control_plane.url`: `wss://`, or `ws://` only for a loopback host.
+Anything else makes the enrollment fail with `invalid_response` and nothing is
+stored.
+
+### Security notes
+
+- The base URL and both endpoints must be `https://`. `http://` is accepted
+  only for loopback hosts (development).
+- The agent never logs or prints the access token or the device code, and
+  neither appears in errors. A server should not log them either; log the
+  user code instead.
+- Authenticate the operator on the verification page and show which machine is
+  being approved. Tokens should be per agent and revocable on the server.
+- Credentials are written to `<data_dir>/control-plane.json` (`data_dir`
+  defaults to `/var/lib/ki-agent`) with mode `0600` through an atomic rename.
+  The agent refuses a file readable by group or others. The file holds
+  `url`, `token`, `enrolled_at` and `enrollment_url`.
+- When that file exists it **replaces** `control_plane.url` and
+  `control_plane.token_file` from the config; the other `control_plane.*`
+  settings (CA file, heartbeat, backoff) still apply. The agent logs which
+  source it uses at start. `ki-agent unenroll` deletes the file and falls back
+  to the config's control plane, if any.
+
+### Local enrollment methods
+
+Capability `enrollment`. These methods control the agent itself, so they are
+**local-only**: any transport other than the Unix socket (WebSocket listener,
+outbound connection) is refused with `-32001` ("only available on the local
+socket"). This is what `ki-agent enroll` and `unenroll` use.
+
+| Method | Params | Result |
+|---|---|---|
+| `enrollment.start` | `url?` (default: the URL baked in at build time), `force?` | `{user_code, verification_uri, verification_uri_complete?, expires_at}` |
+| `enrollment.wait` | none | `{control_plane_url}` once approved; blocks until then |
+| `enrollment.remove` | none | `{}` |
+
+- `start` without `url` and without a built-in default is `-32602`. If the agent
+  is already enrolled it fails with `-32009` unless `force` is true; so does a
+  second `start` while one enrollment is in progress. Polling runs in the
+  background and is **bound to the connection that started it**: it is
+  cancelled when that connection closes. On approval the credentials are saved
+  and the outbound connection starts at once, without a restart.
+- `wait` works only on the connection that called `start` (otherwise `-32602`).
+- `remove` deletes the credentials and stops that connection, falling back to
+  the config's control plane if there is one. When not enrolled it fails with
+  `-32006`.
+- Failures are `-32011` EnrollmentError with `data: {reason, detail}`:
+
+  | `reason` | Meaning |
+  |---|---|
+  | `unreachable` | The enrollment server could not be contacted (DNS, network, TLS, timeout) |
+  | `invalid_response` | A response was malformed, too large, used a disallowed URL or was an unexpected error |
+  | `denied` | The operator denied the request |
+  | `expired` | The code expired before it was approved |
+  | `failed` | Any other failure, for example saving the credentials |
+
+`agent.info` reports where the active control plane came from in
+`control_plane.source`: `"config"` or `"enrollment"` (absent while disabled).
+
 ## Errors
 
 Errors are JSON-RPC error objects `{code, message, data?}`.
@@ -235,7 +363,7 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32601 | Method not found | Unknown method |
 | -32602 | Invalid params | Params missing or wrong (also a non-semver `protocol` in `agent.hello`) |
 | -32603 | Internal error | Handler failed or panicked |
-| -32001 | Unauthorized | Reserved; authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
+| -32001 | Unauthorized | A local-only method (`enrollment.*`) called over a transport other than the Unix socket. Authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
 | -32002 | Handshake required | Method called before a successful `agent.hello` |
 | -32003 | Incompatible version | Major version mismatch; `data.supported` is the agent's version; the connection is closed |
 | -32004 | Subscription not found | Unknown subscription id on unsubscribe |
@@ -245,6 +373,7 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32008 | Runtime unavailable | The container engine cannot be reached |
 | -32009 | Already exists | `projects.create` with a slug that is taken |
 | -32010 | Repository error | A Git operation failed; `data` is `{reason, detail}`, see [Projects](#projects) |
+| -32011 | Enrollment error | Enrollment failed; `data` is `{reason, detail}`, see [Enrollment](#local-enrollment-methods) |
 
 ## Versioning
 
@@ -277,7 +406,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","enrollment"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}
