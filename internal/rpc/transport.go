@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // Transports a Peer can be served over, as recorded by SetTransport.
@@ -41,6 +42,32 @@ func LocalOnly(methods ...string) Middleware {
 		return func(ctx context.Context, p *Peer, params json.RawMessage) (any, error) {
 			if TransportOf(p) != TransportUnix {
 				return nil, NewError(CodeUnauthorized, "only available on the local socket")
+			}
+			return next(ctx, p, params)
+		}
+	}
+}
+
+// AllowTransports returns a Middleware that refuses the given methods with
+// Unauthorized unless the peer is served over one of transports. A peer whose
+// transport is unknown is refused too.
+func AllowTransports(methods []string, transports ...string) Middleware {
+	set := make(map[string]struct{}, len(methods))
+	for _, m := range methods {
+		set[m] = struct{}{}
+	}
+	allowed := make(map[string]struct{}, len(transports))
+	for _, t := range transports {
+		allowed[t] = struct{}{}
+	}
+	msg := "only available on: " + strings.Join(transports, ", ")
+	return func(method string, next Handler) Handler {
+		if _, ok := set[method]; !ok {
+			return next
+		}
+		return func(ctx context.Context, p *Peer, params json.RawMessage) (any, error) {
+			if _, ok := allowed[TransportOf(p)]; !ok {
+				return nil, NewError(CodeUnauthorized, msg)
 			}
 			return next(ctx, p, params)
 		}
