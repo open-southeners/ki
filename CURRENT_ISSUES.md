@@ -298,3 +298,44 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **Fix:** run the Git fixtures with a neutral working directory (for example `cmd.Dir = t.TempDir()`
   in the test helpers and in `internal/git` when no directory is needed) or `GIT_CEILING_DIRECTORIES`.
 
+
+## `/hooks` is routed only on server hostnames, not on project domains (M4a)
+
+- **Where:** `internal/edge/gen.go` (`Dynamic`: the `ki-webhooks` router).
+- **What:** deliberate narrowing of the original plan. `PathPrefix(/hooks/)` goes to the agent's webhook
+  listener only on the server's own hostnames (`edge.domain`, hostnames with an installed certificate),
+  on unknown hosts and on the bare IP. Routing it on project domains would shadow an application's own
+  `/hooks` paths. Webhook senders therefore need the server hostname or the IP, not an app domain.
+- **Fix:** none needed unless a per-project opt-in (for example a `ki.expose.hooks` label) is wanted.
+
+## The edge container keeps `DAC_OVERRIDE` (M4a)
+
+- **Where:** `internal/edge/gen.go` (`Compose`: `cap_add`).
+- **What:** the proxy runs as root with `cap_drop: ALL` plus `NET_BIND_SERVICE` and `DAC_OVERRIDE`. The
+  extra capability exists because the agent's key files (`selfsigned.key`, `certs/*.key`) are 0600 and
+  owned by the agent's user (`ki-agent` under systemd), which root without `DAC_OVERRIDE` cannot read.
+  The container has host networking, a read-only root filesystem and read-only config mounts.
+- **Fix:** run the container as the agent's uid/gid (needs it passed in, and `NET_BIND_SERVICE` is then
+  enough) or hand the key files to a dedicated group.
+
+## Webhook listener and the edge only meet over `127.0.0.1` plain HTTP (M4a)
+
+- **Where:** `internal/cli/run.go` (`effectiveWebhooksListen`), `internal/edge/gen.go`.
+- **What:** the edge forwards `/hooks/` to `http://127.0.0.1:<port>`. An explicit `webhooks.listen` that
+  is neither loopback nor a wildcard, or one with `webhooks.tls_*`, cannot be reached that way; the
+  agent logs a warning and keeps the listener as configured. In the dev stack, an edge running inside
+  the `dind` sidecar cannot reach the agent container's loopback either (the smoke test shared the
+  network namespace with `network_mode: service:dind`).
+- **Fix:** if needed, let the edge target a configured upstream (host, scheme) for webhooks.
+
+
+## Control-plane `Manager.Apply` races with `Run` starting the connector (M1b)
+
+- **Where:** `internal/controlplane/manager.go` (`start` writes `mc.cancel`/`mc.done` under `m.mu`;
+  `Apply` takes `old := m.cur` under `m.mu`, releases it, then `stop(old)` reads them unlocked).
+- **What:** if `Apply` (e.g. enrollment finishing) runs while `Run` is starting, `stop` can read
+  `cancel == nil` and return without stopping a connector that `Run` starts a moment later, leaving the
+  old connection running next to the new one. Caught intermittently by `go test -race`
+  (`TestManagerConcurrentApplyAndStatus`, about 1 in 10 runs). Present since M1b; not touched by M4/M4a.
+- **Fix:** snapshot `cancel`/`done` under `m.mu` (or mark `old` as replaced so `Run` never starts a
+  connector that is no longer `m.cur`), and make `stop` wait on a value read under the lock.
