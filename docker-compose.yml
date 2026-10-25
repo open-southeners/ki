@@ -26,6 +26,12 @@ services:
     environment:
       DOCKER_TLS_CERTDIR: ""
     command: ["--tls=false", "--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    volumes:
+      # The edge proxy's bind mounts are resolved by this engine, so the paths
+      # the agent writes must exist here at the same location: the shared test
+      # directory, and the dev agent's data directory.
+      - ki-shared:/shared
+      - ki-agent-data:/var/lib/ki-agent
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 3s
@@ -45,11 +51,14 @@ services:
     command: ["go", "test", "-race", "-count=1", "./..."]
     environment:
       KI_TEST_DOCKER_HOST: tcp://dind:2375
+      # Mounted at the same path in dind; the edge integration test needs it.
+      KI_TEST_SHARED_DIR: /shared
       GOCACHE: /go-cache/build
       GOMODCACHE: /go-cache/mod
     volumes:
       - .:/src
       - go-cache:/go-cache
+      - ki-shared:/shared
     depends_on:
       dind:
         condition: service_healthy
@@ -72,6 +81,7 @@ volumes:
   ki-agent-data:
   ki-agent-run:
   go-cache:
+  ki-shared:
 
 networks:
   devmesh:
