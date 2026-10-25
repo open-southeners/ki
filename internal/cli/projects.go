@@ -80,6 +80,7 @@ func newProjectsCmd(f *flags) *cobra.Command {
 		newProjectsVerifyCmd(f),
 		newProjectsUpdateCmd(f),
 		newProjectsDeleteCmd(f),
+		newProjectsEnvCmd(f),
 	)
 	return cmd
 }

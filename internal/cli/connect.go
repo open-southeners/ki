@@ -138,8 +138,26 @@ func explainError(err error) error {
 			msg += "\nhint: " + h
 		}
 		return errors.New(msg)
+	case rpc.CodeDeployError:
+		var d struct{ Reason, Detail string }
+		_ = json.Unmarshal(re.Data, &d)
+		msg := re.Message
+		if d.Detail != "" && !strings.Contains(msg, d.Detail) {
+			msg += ": " + d.Detail
+		}
+		if h := deployHints[d.Reason]; h != "" {
+			msg += "\nhint: " + h
+		}
+		return errors.New(msg)
 	}
 	return errors.New(re.Message)
+}
+
+// deployHints maps a DeployError reason to a one-line suggestion.
+var deployHints = map[string]string{
+	"project_not_ready": "grant the agent access to the repository, then run `ki-agent projects verify <slug>`",
+	"ref_not_allowed":   "only the project's trigger branch or matching tags can be deployed; see `ki-agent projects get <slug>`",
+	"ref_not_found":     "the branch, tag or commit does not exist on the remote",
 }
 
 // addJSONFlag registers --json on cmd.
