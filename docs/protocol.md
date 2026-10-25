@@ -102,7 +102,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `enrollment`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -314,6 +314,7 @@ empty until checked out), `source`, `status`, `stage`, `error` (only when
   | `up_failed` | `docker compose up` failed |
   | `health_failed` | Containers did not become healthy in time, or became unhealthy or exited |
   | `runtime_unavailable` | The container engine cannot be reached |
+  | `domain_conflict` | A `ki.expose.*` domain is already exposed by another project (or by another service of this project through `projects.expose`), or two services of the model claim it; nothing was started |
   | `internal` | Any other agent-side failure |
 
 - **Logs.** `deploys.subscribe` is an ordered stream: stored log lines after
@@ -382,6 +383,119 @@ Responses are small JSON bodies and never echo secrets:
   pushes the tagged commit is used (GitHub `head_commit.id`, GitLab
   `checkout_sha`; when absent the agent resolves the tag itself).
 - Deploys created this way have `source: webhook`.
+- **Through the edge.** With the [edge](#exposure-and-the-edge) enabled and
+  `webhooks.listen` empty, the agent listens on `127.0.0.1:<edge.webhooks_port>`
+  (default 8090) and the edge forwards `/hooks/` to it, so deliveries use the
+  server's public address: `https://<server>/hooks/<id>`. Webhooks must use
+  **https**: plain `http://` requests to the edge are redirected to https, and
+  most providers do not follow a redirect on a POST. For the bare IP the edge
+  serves its [self-signed certificate](#default-certificate), so the sender
+  must be told to skip verification (or use a server domain). `/hooks/` is
+  routed only on the server's own hostnames and for unknown hosts and bare IPs,
+  never on project domains, so an application's own `/hooks` paths keep
+  working.
+
+## Exposure and the edge
+
+Capability `edge`. The agent can run a reverse proxy (the **edge**, a managed
+container started with `docker compose`) that publishes project services on
+domains with HTTPS. It is enabled by default (`edge.enabled`), binds ports
+80 and 443 (`edge.http_port`, `edge.https_port`) and is configured entirely by
+the agent; nothing in a project can reach its configuration. The agent keeps
+running when the edge cannot start (port in use, image pull failure, engine
+down): `edge.status` reports `state: error` with `last_error`, and the agent
+retries with a growing delay.
+
+### Exposing a service
+
+A service is exposed with `{service, port, domains, path?}`, from either:
+
+- **Labels** in the project's Compose file: `ki.expose.port: "8080"`,
+  `ki.expose.domains: "app.example.com,www.example.com"` and optionally
+  `ki.expose.path: "/api"`. They are read from the normalized model at deploy
+  time and stored after a **successful** deploy, replacing the previous label
+  set. Other `ki.*` labels and every `traefik.*` label on a service are
+  rejected by the [policy](#deploys) (rule `reserved_label`).
+- **The project side**: `projects.expose` (`slug`, `service`, `port`, `domains`,
+  `path?`) and `projects.unexpose` (`slug`, `service`), both returning the
+  `Project`. A project-side entry **overrides** the labels of that service
+  entirely; `unexpose` makes the labels apply again.
+
+`Project.exposure` lists the effective entries with their `source` (`labels` or
+`project`); `Project.exposure_warnings` carries advisory notes, such as a
+service that does not exist in the last deployed model or a label domain that
+another project owns (and so is not routed).
+
+- **Validation** (`-32602`): port 1 to 65535; at most 20 domains per service;
+  domains are lowercase DNS names in ASCII/punycode with at least one dot, a
+  non-numeric last label, at most 253 characters and 63 per label, no wildcards
+  and no IP addresses; a path starts with `/`, has no spaces or `..` and is at
+  most 256 characters. Domains are trimmed, lowercased and de-duplicated.
+- **Uniqueness.** A domain routes to at most one (project, service) on the
+  server. `projects.expose` fails with `-32009` and `data: {domain, project}`
+  when another project has it; a deploy whose labels collide fails with the
+  reason `domain_conflict` before anything is started.
+- **Reserved hostnames.** The server's own hostnames (`edge.domain` and the
+  hostnames with an [installed certificate](#control-plane-certificates)) cannot
+  be exposed by projects (`-32602`).
+- **Routing.** One route per exposed service: `Host(...)` (and the path prefix)
+  on HTTPS, load-balanced over the running containers of the service on
+  `http://<container ip>:<port>`; containers without an address are left out and
+  a service with none has no route. Certificates for project domains are
+  obtained by ACME (HTTP-01), so the domain must resolve to the server and port
+  80 must be reachable. The routes follow deploys, container restarts and
+  exposure changes within seconds.
+
+### Default certificate
+
+Requests for the bare IP or an unknown host get a persistent **self-signed**
+ECDSA P-256 certificate (CN `ki-agent`, valid 10 years, SANs: the hostname and
+the non-loopback interface addresses at creation) generated once into
+`<data_dir>/edge/` and never regenerated while its files exist. Its SHA-256
+fingerprint and expiry are in `edge.status` (`self_signed`) and
+`ki-agent edge status`, so an operator can pin or check it.
+
+### Edge methods
+
+| Method | Params | Result | Transports |
+|---|---|---|---|
+| `edge.status` | none | `EdgeStatus` | all |
+| `edge.csr` | `hostname` | `{hostname, csr}` (PEM) | Unix socket, control plane |
+| `edge.certificate.install` | `hostname`, `certificate` (PEM chain) | `EdgeStatus` | Unix socket, control plane |
+| `edge.certificate.remove` | `hostname` | `EdgeStatus` | Unix socket, control plane |
+
+`edge.status` always answers; with the edge disabled it reports `enabled:
+false` and `state: disabled`. The restricted methods answer `-32001` on the
+agent's WebSocket listener, and a hostname that a project exposes is refused
+with `-32009`.
+
+### Control-plane certificates
+
+A control plane that fronts the agent's own hostname (for example with an
+origin certificate trusted only by its CDN) provisions the certificate over
+RPC; the private key never leaves the server:
+
+1. `edge.csr {hostname}`: the agent creates (or reuses the pending) ECDSA P-256
+   key for the hostname, keeps it in `<data_dir>/edge/certs/` (mode 0600), and
+   returns a PEM CSR with that single DNS name.
+2. The control plane has the CSR signed by its CA.
+3. `edge.certificate.install {hostname, certificate}` with the PEM chain, leaf
+   first. The leaf must match the stored key, cover the hostname, be valid now
+   and not expire within **24 hours**; otherwise `-32602` explains why. The
+   chain is **not** verified against system roots, so a private or origin CA is
+   fine. On success the hostname becomes a server hostname served with this
+   certificate and is reserved against project exposure.
+4. Renew by repeating the three steps; `edge.certificate.remove {hostname}`
+   deletes the certificate and key.
+
+`edge.status.certificates` lists installed certificates (with `not_after`) and
+the ACME ones the edge will obtain (`edge.domain` and project domains).
+
+### Server hostnames
+
+On the server's own hostnames, on unknown hosts and on the bare IP, `/hooks/`
+is forwarded to the webhook listener (see [Webhooks](#webhooks)) and anything
+else is a plain 404 until a management UI exists. HTTP is redirected to HTTPS.
 
 ## Enrollment
 
@@ -521,7 +635,7 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32601 | Method not found | Unknown method |
 | -32602 | Invalid params | Params missing or wrong (also a non-semver `protocol` in `agent.hello`) |
 | -32603 | Internal error | Handler failed or panicked |
-| -32001 | Unauthorized | A local-only method (`enrollment.*`) called over a transport other than the Unix socket. Authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
+| -32001 | Unauthorized | A local-only method (`enrollment.*`) called over a transport other than the Unix socket, or a transport-restricted one (`edge.csr`, `edge.certificate.install`, `edge.certificate.remove`: Unix socket and control plane only) called over another. Authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
 | -32002 | Handshake required | Method called before a successful `agent.hello` |
 | -32003 | Incompatible version | Major version mismatch; `data.supported` is the agent's version; the connection is closed |
 | -32004 | Subscription not found | Unknown subscription id on unsubscribe |
@@ -529,7 +643,7 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32006 | Not found | Container or project does not exist (containers not managed by ki count as missing) |
 | -32007 | Policy violation | Reserved; not currently returned. Deploys report violations on the failed deploy (`error.violations`, `{service, rule, detail}`) |
 | -32008 | Runtime unavailable | The container engine cannot be reached |
-| -32009 | Already exists | `projects.create` with a slug that is taken |
+| -32009 | Already exists | `projects.create` with a slug that is taken; or a domain that is already exposed by another project, with `data` `{domain, project}` (`projects.expose`, and the `edge.*` methods, which add `service`) |
 | -32010 | Repository error | A Git operation failed; `data` is `{reason, detail}`, see [Projects](#projects) |
 | -32011 | Enrollment error | Enrollment failed; `data` is `{reason, detail}`, see [Enrollment](#local-enrollment-methods) |
 | -32012 | Deploy error | `deploys.trigger` was rejected; `data` is `{reason, detail}`, see [Deploys](#deploys) |
@@ -565,7 +679,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","enrollment"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}

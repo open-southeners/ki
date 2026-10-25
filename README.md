@@ -7,8 +7,8 @@ single static binary.
 **Status: pre-alpha.** The service, one-line installer, configuration, systemd
 packaging, the JSON-RPC endpoint, Docker container management, Git-backed
 projects, the command-line client, device-flow enrollment into a control
-plane, and policy-checked deploys of compose projects (from the CLI, the API or
-push webhooks) exist.
+plane, policy-checked deploys of compose projects (from the CLI, the API or
+push webhooks) and an HTTPS edge proxy that publishes services on domains exist.
 
 ## Install
 
@@ -32,6 +32,7 @@ sha256 checksum (always) and then installs:
 | `--version vX.Y.Z` | Install that release instead of the latest |
 | `--with-docker` | Install Docker Engine (via get.docker.com) if it or the Compose plugin is missing |
 | `--enroll [URL]` | Run `ki-agent enroll [URL]` once the service is up (see below) |
+| `--no-edge` | Write `edge.enabled: false` into a newly created config, so no reverse proxy is started (see [Exposing services](#exposing-services)) |
 | `--no-start` | Enable the service but do not start it |
 | `--add-user USER` | Add `USER` to the `ki-agent` group (default: the user who ran `sudo`) |
 
@@ -259,6 +260,7 @@ add your user to the `ki-agent` group or use `sudo`.
 <data_dir>/deploys/<slug>/     the checked, labelled compose model that last ran
 <data_dir>/git/                Git's home directory and SSH known_hosts
 <data_dir>/tmp/                staging area for clones
+<data_dir>/edge/               edge proxy config, certificates and ACME storage (see Exposing services)
 ```
 
 ### Deploying
@@ -290,7 +292,10 @@ ki-agent projects env list app
 They are written to the checkout's `.env` at deploy time and are also used for
 `${VAR}` interpolation of the Compose file. Redeploy to apply a change.
 
-**Webhooks.** Set `webhooks.listen` (for example `127.0.0.1:8090`, behind a
+**Webhooks.** With the edge enabled (the default) the webhook listener starts
+by itself on `127.0.0.1:8090` and the edge publishes it as
+`https://<your host>/hooks/<id>`; see [Exposing services](#exposing-services).
+Without the edge, set `webhooks.listen` (for example `127.0.0.1:8090`, behind a
 reverse proxy that terminates TLS, or any address together with
 `webhooks.tls_cert_file` and `webhooks.tls_key_file`) and point GitHub or
 GitLab at `https://<your host>/hooks/<id>` using the path and secret printed by
@@ -326,6 +331,60 @@ outside the project folder, build SSH forwarding, `sysctls` other than `net.*`,
 `provider` services and any `runtime` other than `runc`. These are the usual
 host-escape routes. A deploy with violations fails with `policy_violation` and
 the list of violations; nothing is built or started.
+
+## Exposing services
+
+The agent runs a managed reverse proxy (the **edge**) as a Docker container
+that publishes project services on your domains with HTTPS, and forwards push
+webhooks. It is enabled by default and binds host ports **80 and 443**. Set
+`edge.enabled: false` (or install with `--no-edge`) if something else owns
+those ports.
+
+Expose a service with labels in the project's Compose file:
+
+```yaml
+services:
+  web:
+    image: nginx
+    labels:
+      ki.expose.port: "80"
+      ki.expose.domains: "app.example.com,www.example.com"
+      ki.expose.path: "/"        # optional path prefix
+```
+
+or from the server, which overrides the labels of that service:
+
+```sh
+ki-agent projects expose app web --port 80 --domain app.example.com
+ki-agent projects unexpose app web
+```
+
+A domain belongs to one project and service on the server; a second project
+claiming it is refused (a deploy fails with `domain_conflict`). Other `ki.*`
+labels and all `traefik.*` labels are rejected by the safety policy. For each
+domain, DNS must point at the server and port 80 must be reachable from the
+internet, because certificates are obtained from Let's Encrypt on demand.
+
+```yaml
+edge:
+  enabled: true
+  domain: ""           # this server's own domain (ACME certificate); optional
+  acme_email: ""       # optional ACME account contact
+  http_port: 80
+  https_port: 443
+  webhooks_port: 8090  # loopback port of the webhook listener
+```
+
+`ki-agent edge status` shows the proxy state, ports, server hostnames, routes
+and certificates. Requests to the bare IP (or an unknown host) get a persistent
+**self-signed** certificate; the same command prints its SHA-256 fingerprint
+so you can compare it with what your browser or webhook sender shows before
+trusting it. Prefer a domain and let ACME certify it. Webhooks must use
+`https://`; plain HTTP is redirected. Restarting the agent leaves the proxy
+running. A port conflict or an engine problem does not stop the agent: it shows
+up as `state: error` in `edge status`. A control plane can install an origin
+certificate for the server's hostname with `edge.csr` and
+`edge.certificate.install` (see [`docs/protocol.md`](docs/protocol.md)).
 
 ## Development
 
