@@ -62,26 +62,15 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **Fix:** store them via `Peer.Set` and include `client.name/version` in the
   connection log once something needs them.
 
-## Compose must be normalized without env resolution (M4)
-
-- **Where:** M4 deploy pipeline (`docker compose config` call before `internal/policy.Check`).
-- **What:** by default `docker compose config` reads `env_file` contents itself —
-  even from outside the project root — and drops the key, so the `env_file`
-  policy rule never sees it. `include`/`extends` also make compose read files
-  outside the root while normalizing untrusted YAML.
-- **Fix:** run `docker compose config --format json --no-env-resolution`, with
-  a minimal environment and the project dir as cwd; consider rejecting
-  `include`/`extends` sources outside the root before invoking compose.
-
 ## Policy rules not yet covered (M2 follow-up)
 
 - **Where:** `internal/policy/check.go`.
-- **What:** `group_add`, `runtime`, `pull_policy`, `ulimits`, `develop.watch`,
-  `post_start`/`pre_stop` hooks and `provider:` services are not inspected.
-  None is a known host escape on its own, but `runtime` (custom OCI runtimes)
-  and `provider` (runs host-side plugins) deserve a look.
-- **Fix:** review each; reject `provider` services and non-default `runtime`
-  unless allow-listed in config.
+- **What:** `group_add`, `pull_policy`, `ulimits`, `develop.watch` and
+  `post_start`/`pre_stop` hooks are not inspected. None is a known host
+  escape on its own. (`provider` services and non-default `runtime` are now
+  rejected: rules `provider` and `runtime`.)
+- **Fix:** review each; reject any that turns out to run on the host or to
+  widen privileges.
 
 ## Go `rpc.Peer` dispatches incoming notifications concurrently (M2)
 
@@ -93,14 +82,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   anyone reusing the package as a client library.
 - **Fix:** dispatch notifications serially per subscription id (or per peer),
   and state "order by `seq`" in the OpenRPC `SubscriptionUpdate` description.
-
-## Dev compose `ki-agent` service has no Docker engine (M2)
-
-- **Where:** `docker-compose.yml` (`ki-agent` service).
-- **What:** no `KI_DOCKER_HOST` and not attached to `testnet`, so the dev agent
-  logs "runtime unreachable" and every `containers.*` call returns −32008.
-- **Fix:** set `KI_DOCKER_HOST=tcp://dind:2375`, add `testnet` to its networks
-  and `depends_on: dind (healthy)`.
 
 ## Runtime-unavailable cause is not logged (M2)
 
@@ -160,14 +141,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   majors before upgrading; which of 401/403 to use.
 - **Fix:** decide and document (suggest: control plane may reject an incompatible
   `Ki-Protocol` major with HTTP 426; agent treats it like 401/403).
-
-## Example config is not exercised by tests (M1b)
-
-- **Where:** `packaging/config.example.yaml`, `internal/config`.
-- **What:** no test loads the shipped example, so it can drift from the config
-  struct (it was only verified manually during the M1b smoke test).
-- **Fix:** add a config test that loads the example (with paths overridden) and
-  asserts it validates.
 
 ## Git URLs: bracketed IPv6 scp-style form unsupported (M3)
 
@@ -244,3 +217,84 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   another, although the example issues 10-minute codes. Cosmetic, cause not investigated.
 - **Fix:** check how `expires_in` is computed on both sides (and the 30-minute cap) and add a test
   asserting `ExpiresAt ≈ now + expires_in`.
+
+## `ReasonRefNotFound` doc comment mentions branches only (M4)
+
+- **Where:** `internal/git/errors.go` (`ReasonRefNotFound`).
+- **What:** the reason now also covers tags, shas and "commit not on ref" (`internal/git/refs.go`),
+  but its comment still says "branch".
+- **Fix:** reword the comment; no behaviour change.
+
+## `deploys logs` without `--follow` guesses when a running deploy's log ends (M4)
+
+- **Where:** `internal/cli/deploys.go` (`deploys logs`).
+- **What:** the API only streams logs, so for a deploy that is still running the CLI stops after
+  500 ms without new replayed lines. On a slow link it may stop before the stored log is replayed.
+- **Fix:** add a non-streaming `deploys.logs {id, since_seq, limit}` method, or include the stored
+  log's last `seq` in `deploys.get` so the client knows when the replay is complete.
+
+## Project delete cancels deploys even when the delete then fails (M4)
+
+- **Where:** `internal/projects/service.go` (`Delete` runs `OnDelete` hooks before the lock).
+- **What:** if pruning fails afterwards (engine unreachable, concurrent delete), the project survives
+  but its running and queued deploys were already cancelled and recorded as interrupted.
+- **Fix:** acceptable; if it matters, check the runtime is reachable before running the hooks.
+
+## Webhook dedupe and the webhooks package's store dependency (M4)
+
+- **Where:** `internal/webhooks` (`dedupe.go`, import of `internal/store` for `ErrNotFound`).
+- **What:** delivery-id dedupe is in memory, so a redelivery after an agent restart deploys again
+  (harmless: same commit). Importing `internal/store` only for the sentinel pulls the sqlite driver
+  into the package's build, making its tests slow to build.
+- **Fix:** define `webhooks.ErrNotFound` and translate in the wiring adapter; persist dedupe only if
+  duplicate deploys become a problem.
+
+## A deploy waiting for the project lock cannot be cancelled (M4)
+
+- **Where:** `internal/projects/env.go` (`WithProject` takes the lock without a context).
+- **What:** a deploy queued behind a long `projects.update`/`verify` (git over a slow remote) keeps
+  waiting after shutdown or cancellation until the lock is free. Delete is unaffected (its hook
+  runs before the lock).
+- **Fix:** make the per-project lock context-aware (channel-based semaphore) and pass ctx.
+
+## Triggering a deploy while its project is being deleted returns an internal error (M4)
+
+- **Where:** `internal/deploys/manager.go` (`Cancel` marks the slug as deleting).
+- **What:** `deploys.trigger` during a delete answers −32603 instead of a clear error; if the delete
+  then fails, triggers keep failing until the slug's worker exits.
+- **Fix:** answer `project_not_ready` (or NotFound) while deleting, and clear the marker when the
+  delete fails (e.g. a second hook after `Delete` returns).
+
+## A sha that is not on the trigger branch fails at checkout, not at trigger (M4)
+
+- **Where:** `internal/deploys/refs.go`.
+- **What:** `deploys.trigger {ref: <sha>}` is accepted and the deploy ends `failed`/`fetch_failed`
+  ("commit not on ref") instead of an immediate `ref_not_allowed`.
+- **Fix:** acceptable; checking up front needs a fetch. Revisit if callers rely on the sync error.
+
+## Old Compose plugins inline `env_file` despite `--no-env-resolution` (M4)
+
+- **Where:** `internal/compose/runner.go` (`Config`), `install.sh` (only checks that `docker compose version` works).
+- **What:** Compose 2.40.3 (what `docker:28-cli` ships) still reads `env_file` entries during
+  `config --no-env-resolution` and inlines them into `environment`, so `env_file: /etc/passwd` is
+  neither reported by the `env_file` policy rule nor kept out of the container: a file-read
+  primitive for whoever controls the Compose file. v5.1.0 behaves as intended, which is why the image
+  pins `docker/compose-bin:v5.1.0`. Hosts using the packaged install run whatever plugin they have.
+- **Mitigated:** `compose.CheckIncludes` now rejects `env_file`/`label_file` paths that are not inside
+  the checkout (raw YAML, every included/extended file, symlinks resolved) before Compose runs, so
+  the file read is blocked on any Compose version. Remaining risk: a future Compose feature that
+  reads another file during `config`.
+- **Fix:** still worth a start-up `docker compose version` check with a known-good minimum, stated in
+  the README and `install.sh`.
+
+## The dind `test` service fails inside a Git worktree (M4)
+
+- **Where:** `docker-compose.yml` (`test` service mounts `.` at `/src`).
+- **What:** in a worktree, `/src/.git` is a file pointing at the main repository's absolute path,
+  which does not exist in the container, so every Git subprocess started with the working directory
+  under `/src` fails with "not a git repository" (about a dozen packages' tests). It passes in a
+  normal clone. Worked around locally with an uncommitted override that mounts the main `.git` at
+  the same path.
+- **Fix:** run the Git fixtures with a neutral working directory (for example `cmd.Dir = t.TempDir()`
+  in the test helpers and in `internal/git` when no directory is needed) or `GIT_CEILING_DIRECTORIES`.
+
