@@ -101,6 +101,7 @@ type rawService struct {
 	Build             *rawBuild       `json:"build"`
 	EnvFile           rawEnvFiles     `json:"env_file"`
 	Runtime           string          `json:"runtime"`
+	Labels            flexKV          `json:"labels"`
 	Provider          json.RawMessage `json:"provider"`
 }
 
@@ -111,7 +112,7 @@ func (r *rawService) toService(name string) *Service {
 		Cgroup: r.Cgroup, CgroupParent: r.CgroupParent, CapAdd: r.CapAdd,
 		DeviceCgroupRules: r.DeviceCgroupRules, SecurityOpt: r.SecurityOpt,
 		VolumesFrom: r.VolumesFrom, Sysctls: r.Sysctls.m, EnvFiles: r.EnvFile.paths,
-		Runtime: r.Runtime,
+		Runtime: r.Runtime, Labels: r.Labels.m,
 		// Any non-null value counts, even an empty object: the key alone
 		// turns the service into a provider.
 		Provider: len(r.Provider) > 0 && !bytes.Equal(bytes.TrimSpace(r.Provider), []byte("null")),

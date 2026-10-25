@@ -1,0 +1,23 @@
+{
+  "name": "t",
+  "networks": {
+    "default": {
+      "name": "t_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "image": "x",
+      "labels": {
+        "KI.secret": "1",
+        "ki.expose.port": "80"
+      },
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

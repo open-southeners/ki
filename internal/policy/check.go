@@ -136,6 +136,11 @@ func (c *checker) service(name string, s *Service) {
 	if rt := strings.TrimSpace(s.Runtime); rt != "" && rt != "runc" {
 		c.add(name, RuleRuntime, fmt.Sprintf("runtime %q is not allowed", s.Runtime))
 	}
+	for _, k := range sortedKeys(s.Labels) {
+		if reservedLabel(k) {
+			c.add(name, RuleReservedLabel, fmt.Sprintf("label %q is reserved", k))
+		}
+	}
 	for _, k := range sortedKeys(s.Sysctls) {
 		if !strings.HasPrefix(k, "net.") {
 			c.add(name, RuleSysctls, fmt.Sprintf("sysctl %q is not allowed (only net.* is)", k))
@@ -314,4 +319,21 @@ func unsafeSecurityOpt(o string) bool {
 		return true
 	}
 	return false
+}
+
+// allowedKiLabels are the only `ki.` labels a project may set.
+var allowedKiLabels = map[string]bool{
+	"ki.expose.port": true, "ki.expose.domains": true, "ki.expose.path": true,
+}
+
+// reservedLabel reports whether a service label key is in a namespace the
+// agent owns. The prefixes match case-insensitively (and ignoring surrounding
+// space), so `Traefik.x` and `KI.foo` are reserved; the allowed ki.expose.*
+// keys must match exactly.
+func reservedLabel(key string) bool {
+	k := strings.ToLower(strings.TrimSpace(key))
+	if strings.HasPrefix(k, "traefik.") {
+		return true
+	}
+	return strings.HasPrefix(k, "ki.") && !allowedKiLabels[key]
 }

@@ -52,6 +52,7 @@ type Service struct {
 	Build             *Build
 	EnvFiles          []string
 	Runtime           string
+	Labels            map[string]string
 	Provider          bool // the service has a `provider` key
 }
 
@@ -190,6 +191,13 @@ const (
 	// RuleRuntime rejects any `runtime` other than empty or runc: custom OCI
 	// runtimes can run outside the container sandbox.
 	RuleRuntime = "runtime"
+	// RuleReservedLabel rejects service labels in namespaces the agent owns:
+	// any key starting with `traefik.` (any case; it would let a project
+	// configure the edge proxy directly) and any `ki.` key other than
+	// `ki.expose.port`, `ki.expose.domains` and `ki.expose.path`. The detail
+	// names the key, never its value. Labels on networks and volumes are not
+	// checked.
+	RuleReservedLabel = "reserved_label"
 	// RuleProjectRoot is reported when the project root itself cannot be
 	// resolved, in which case no containment check can be trusted.
 	RuleProjectRoot = "project_root"
@@ -204,5 +212,5 @@ var Rules = []string{
 	RuleCgroup, RuleCapAdd, RuleDevices, RuleDeviceCgroupRules, RuleSecurityOpt,
 	RuleCgroupParent, RuleVolumesFrom, RuleBindMount, RuleDockerSocket,
 	RuleVolumeDriverOpts, RuleExternalVolume, RuleBuildSSH, RuleBuildContext, RuleEnvFile, RuleConfigFile,
-	RuleSecretFile, RuleSysctls, RuleProvider, RuleRuntime, RuleProjectRoot, RuleUnparseable,
+	RuleSecretFile, RuleSysctls, RuleProvider, RuleRuntime, RuleReservedLabel, RuleProjectRoot, RuleUnparseable,
 }

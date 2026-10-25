@@ -1,0 +1,8 @@
+name: t
+services:
+  a:
+    image: x
+    labels:
+      traefik.enable: "true"
+      ki.expose.port: "80"
+      com.example.ok: "fine"

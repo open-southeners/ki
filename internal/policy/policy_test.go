@@ -535,3 +535,52 @@ func TestRulesAreUnique(t *testing.T) {
 		seen[r] = true
 	}
 }
+
+func TestReservedLabelRule(t *testing.T) {
+	root := t.TempDir()
+	tests := []struct {
+		name   string
+		labels string
+		want   []string // reserved keys, in sorted order
+	}{
+		{"none", `{}`, nil},
+		{"app labels", `{"com.example.a":"1","kiwi.x":"1","traefik":"1","ki":"1"}`, nil},
+		{"expose allowed", `{"ki.expose.port":"80","ki.expose.domains":"a.test","ki.expose.path":"/x"}`, nil},
+		{"traefik", `{"traefik.enable":"true"}`, []string{"traefik.enable"}},
+		{"traefik case", `{"Traefik.http.routers.x":"1"}`, []string{"Traefik.http.routers.x"}},
+		{"ki other", `{"ki.foo":"1","ki.expose":"1","ki.expose.port.x":"1"}`, []string{"ki.expose", "ki.expose.port.x", "ki.foo"}},
+		{"ki case", `{"KI.expose.port":"80"}`, []string{"KI.expose.port"}},
+		{"list form", `["traefik.enable=true","ki.expose.port=80","ki.bad=secretvalue"]`, []string{"ki.bad", "traefik.enable"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := ParseCompose([]byte(`{"name":"t","services":{"a":{"labels":` + tt.labels + `}}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, v := range Check(root, p, Options{}) {
+				if v.Rule != RuleReservedLabel || v.Service != "a" {
+					t.Fatalf("unexpected violation %+v", v)
+				}
+				if strings.Contains(v.Detail, "secretvalue") {
+					t.Fatalf("detail leaks value: %q", v.Detail)
+				}
+				got = append(got, v.Detail)
+			}
+			var want []string
+			for _, k := range tt.want {
+				want = append(want, `label "`+k+`" is reserved`)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("details = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestParseLabelsBadType(t *testing.T) {
+	if _, err := ParseCompose([]byte(`{"services":{"a":{"labels":"x"}}}`)); err == nil {
+		t.Fatal("want error for string labels")
+	}
+}

@@ -1,0 +1,7 @@
+name: t
+services:
+  a:
+    image: x
+    labels:
+      - "KI.secret=1"
+      - "ki.expose.port=80"
