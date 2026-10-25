@@ -78,6 +78,22 @@ var migrations = []string{
 		text      TEXT NOT NULL,
 		PRIMARY KEY (deploy_id, seq)
 	)`,
+	`CREATE TABLE project_exposures (
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		service    TEXT NOT NULL,
+		port       INTEGER NOT NULL,
+		domains    TEXT NOT NULL,
+		path       TEXT NOT NULL DEFAULT '',
+		source     TEXT NOT NULL CHECK (source IN ('labels', 'project')),
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (project_id, service, source)
+	);
+	CREATE TABLE exposure_domains (
+		domain     TEXT PRIMARY KEY,
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		service    TEXT NOT NULL,
+		source     TEXT NOT NULL
+	)`,
 }
 
 // Project is a persisted project row.
