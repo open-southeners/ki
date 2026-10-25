@@ -1,0 +1,85 @@
+{
+  "name": "ki-edge",
+  "services": {
+    "traefik": {
+      "cap_add": [
+        "NET_BIND_SERVICE",
+        "DAC_OVERRIDE"
+      ],
+      "cap_drop": [
+        "ALL"
+      ],
+      "image": "traefik:v3.7.14",
+      "labels": {
+        "ki.component": "edge",
+        "ki.edge.config": "abc123",
+        "ki.managed": "true"
+      },
+      "network_mode": "host",
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "volumes": [
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": true,
+          "source": "/var/lib/ki-agent/edge/traefik.yaml",
+          "target": "/etc/traefik/traefik.yaml",
+          "type": "bind"
+        },
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": true,
+          "source": "/var/lib/ki-agent/edge/dynamic",
+          "target": "/etc/traefik/dynamic",
+          "type": "bind"
+        },
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": true,
+          "source": "/var/lib/ki-agent/edge/certs",
+          "target": "/etc/traefik/certs",
+          "type": "bind"
+        },
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": true,
+          "source": "/var/lib/ki-agent/edge/selfsigned.crt",
+          "target": "/etc/traefik/selfsigned/selfsigned.crt",
+          "type": "bind"
+        },
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": true,
+          "source": "/var/lib/ki-agent/edge/selfsigned.key",
+          "target": "/etc/traefik/selfsigned/selfsigned.key",
+          "type": "bind"
+        },
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": false,
+          "source": "/var/lib/ki-agent/edge/acme",
+          "target": "/data",
+          "type": "bind"
+        }
+      ]
+    }
+  }
+}

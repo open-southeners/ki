@@ -1,0 +1,27 @@
+certificatesResolvers:
+    le:
+        acme:
+            email: ops@example.com
+            httpChallenge:
+                entryPoint: web
+            storage: /data/acme.json
+entryPoints:
+    web:
+        address: :80
+        http:
+            redirections:
+                entryPoint:
+                    permanent: true
+                    scheme: https
+                    to: websecure
+    websecure:
+        address: :443
+global:
+    checkNewVersion: false
+    sendAnonymousUsage: false
+log:
+    level: INFO
+providers:
+    file:
+        directory: /etc/traefik/dynamic
+        watch: true

@@ -1,0 +1,14 @@
+http:
+    routers:
+        ki-hooks-catchall:
+            entryPoints:
+                - websecure
+            priority: 1
+            rule: HostRegexp(`^.+$`) && PathPrefix(`/hooks/`)
+            service: ki-webhooks
+            tls: {}
+    services:
+        ki-webhooks:
+            loadBalancer:
+                servers:
+                    - url: http://127.0.0.1:8090
