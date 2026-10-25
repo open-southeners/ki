@@ -48,6 +48,36 @@ var migrations = []string{
 		UNIQUE (slug),
 		UNIQUE (webhook_id)
 	)`,
+	`CREATE TABLE project_env (
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		name       TEXT NOT NULL,
+		value_enc  BLOB NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (project_id, name)
+	)`,
+	`CREATE TABLE deploys (
+		id           INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		ref          TEXT NOT NULL DEFAULT '',
+		commit_sha   TEXT NOT NULL DEFAULT '',
+		source       TEXT NOT NULL DEFAULT '',
+		status       TEXT NOT NULL DEFAULT '',
+		stage        TEXT NOT NULL DEFAULT '',
+		error_reason TEXT NOT NULL DEFAULT '',
+		error_detail TEXT NOT NULL DEFAULT '',
+		error_data   TEXT NOT NULL DEFAULT '',
+		created_at   TEXT NOT NULL,
+		started_at   TEXT,
+		finished_at  TEXT
+	);
+	CREATE INDEX deploys_project_id_idx ON deploys (project_id, id DESC);
+	CREATE TABLE deploy_logs (
+		deploy_id INTEGER NOT NULL REFERENCES deploys(id) ON DELETE CASCADE,
+		seq       INTEGER NOT NULL,
+		stream    TEXT NOT NULL,
+		text      TEXT NOT NULL,
+		PRIMARY KEY (deploy_id, seq)
+	)`,
 }
 
 // Project is a persisted project row.
@@ -77,6 +107,12 @@ type Store struct {
 
 // Open opens (creating with mode 0600 if needed) the database at path in WAL
 // mode and applies pending migrations.
+//
+// Every transaction the store opens is a write, so transactions start
+// IMMEDIATE (_txlock): a deferred read-then-write transaction cannot upgrade its
+// lock under WAL while another writer is active and fails at once with
+// SQLITE_BUSY, bypassing busy_timeout. Plain reads use no transaction and stay
+// concurrent.
 func Open(path string) (*Store, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -86,7 +122,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("store: create database file: %w", err)
 	}
 	u := url.URL{Scheme: "file", Path: path}
-	dsn := u.String() + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	dsn := u.String() + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: open database: %w", err)
