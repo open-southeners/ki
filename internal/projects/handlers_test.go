@@ -1,6 +1,7 @@
 package projects
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,42 @@ func TestMapError(t *testing.T) {
 	}
 	if mapError(nil) != nil {
 		t.Error("nil must stay nil")
+	}
+}
+
+func TestEnvHandlers(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	e.seedProject(t, "app")
+	h := NewHandlers(e.svc)
+	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	marshal := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+	res, err := h.envSet(ctx, nil, raw(`{"slug":"app","vars":{"B":"secretval","A":"1"}}`))
+	if err != nil || marshal(res) != `{"names":["A","B"]}` {
+		t.Fatalf("set = %s, %v", marshal(res), err)
+	}
+	res, err = h.envList(ctx, nil, raw(`{"slug":"app"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := marshal(res); strings.Contains(out, "secretval") || !strings.Contains(out, `"vars":[{"name":"A"`) {
+		t.Errorf("list = %s", out)
+	}
+	res, err = h.envUnset(ctx, nil, raw(`{"slug":"app","names":["A"]}`))
+	if err != nil || marshal(res) != `{"names":["B"]}` {
+		t.Fatalf("unset = %s, %v", marshal(res), err)
+	}
+
+	var re *rpc.Error
+	if _, err := h.envSet(ctx, nil, raw(`{"slug":"app","vars":{"1x":"v"}}`)); !errors.As(err, &re) || re.Code != rpc.CodeInvalidParams {
+		t.Errorf("bad name err = %v", err)
+	}
+	if _, err := h.envList(ctx, nil, raw(`{"slug":"nope"}`)); !errors.As(err, &re) || re.Code != rpc.CodeNotFound {
+		t.Errorf("unknown err = %v", err)
+	}
+	if _, err := h.envList(ctx, nil, raw(`{}`)); !errors.As(err, &re) || re.Code != rpc.CodeInvalidParams {
+		t.Errorf("missing slug err = %v", err)
 	}
 }
 

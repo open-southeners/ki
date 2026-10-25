@@ -92,6 +92,9 @@ type Service struct {
 
 	mu    sync.Mutex
 	locks map[string]*slugLock
+
+	hookMu   sync.Mutex
+	onDelete []func(ctx context.Context, slug string)
 }
 
 type slugLock struct {
@@ -708,6 +711,10 @@ func (s *Service) Update(ctx context.Context, in UpdateParams) (*Result, error) 
 // then its checkout, then its record. If the runtime is unavailable nothing
 // is removed.
 func (s *Service) Delete(ctx context.Context, slug string, volumes bool) (runtime.PruneReport, error) {
+	if _, err := s.st.GetProject(ctx, slug); err != nil {
+		return runtime.PruneReport{}, err
+	}
+	s.runOnDelete(ctx, slug) // before the lock: hooks may wait for lock holders
 	unlock := s.lock(slug)
 	defer unlock()
 	if _, err := s.st.GetProject(ctx, slug); err != nil {
