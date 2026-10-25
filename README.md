@@ -6,8 +6,9 @@ single static binary.
 
 **Status: pre-alpha.** The service, one-line installer, configuration, systemd
 packaging, the JSON-RPC endpoint, Docker container management, Git-backed
-projects, the command-line client and device-flow enrollment into a control
-plane exist; deploying compose projects is under development.
+projects, the command-line client, device-flow enrollment into a control
+plane, and policy-checked deploys of compose projects (from the CLI, the API or
+push webhooks) exist.
 
 ## Install
 
@@ -50,8 +51,10 @@ users who should run `ki-agent status` and friends must be in that group
 ## Prerequisites
 
 On the server: Docker with the Compose plugin, `git` and an `ssh` client (the
-agent shells out to them). The container image already includes `git` and
-`openssh-client`.
+agent shells out to them). The container image already includes `git`,
+`openssh-client`, the Docker CLI and the Compose plugin. Use a current Compose
+plugin (the image ships v5.1.0): older releases such as 2.40.3 ignore
+`--no-env-resolution` for `env_file`, which the deploy safety checks rely on.
 
 ## Build
 
@@ -211,8 +214,8 @@ choose another). Nothing is stored if the clone fails.
 Keys and tokens are encrypted at rest and never returned by the API. Create
 also prints a **webhook** path and secret, shown only once; configure it in
 GitHub (content type `application/json`, "push" event) or GitLab ("Push events"
-and "Tag push events"). Rotate it with `projects update --rotate-webhook-secret`.
-Receiving webhooks and deploying are still under development.
+and "Tag push events"). Rotate it with `projects update --rotate-webhook-secret`. See
+[Deploying](#deploying) for what happens when it fires.
 
 `projects delete` removes the project's containers and networks, then its
 checkout and record. Volumes are kept unless you pass `--volumes`; the
@@ -235,6 +238,12 @@ The same binary talks to a running agent over its Unix socket:
 | `ki-agent projects update <slug>` | Change trigger, Compose file or credentials; `--rotate-webhook-secret`, `--rotate-deploy-key` |
 | `ki-agent projects delete <slug>` | Delete (`--volumes`, `--yes`) |
 | `ki-agent logs <container>` | Follow logs (`--tail`, `--since`, `--timestamps`) |
+| `ki-agent deploy --project <slug>` | Deploy and follow the log (`--ref`, `--detach`); exits non-zero if the deploy fails |
+| `ki-agent deploys list <slug>` / `get <id>` / `logs <id>` | Deploy history, one deploy, its log (`--limit`, `--follow`) |
+| `ki-agent projects env list <slug>` | List a project's variable names (never values) |
+| `ki-agent projects env set <slug> <NAME>` | Set a variable; value from `--value-stdin` or `--value-file` |
+| `ki-agent projects env import <slug> --file <dotenv>` | Set several variables from a dotenv file |
+| `ki-agent projects env unset <slug> <NAME>...` | Remove variables |
 
 `--socket PATH` selects the socket (default: `KI_SOCKET_PATH`, then
 `socket.path` from the config file, then `/run/ki-agent/ki.sock`). Every client
@@ -246,15 +255,65 @@ add your user to the `ki-agent` group or use `sudo`.
 ```
 <data_dir>/state.db            SQLite database (projects)
 <data_dir>/secret.key          key that encrypts stored credentials (0600; back it up)
-<data_dir>/projects/<slug>/    each project's Git checkout
+<data_dir>/projects/<slug>/    each project's Git checkout (deploys write .env here)
+<data_dir>/deploys/<slug>/     the checked, labelled compose model that last ran
 <data_dir>/git/                Git's home directory and SSH known_hosts
 <data_dir>/tmp/                staging area for clones
 ```
 
-### Safety policy (upcoming)
+### Deploying
 
-Docker group membership is root-equivalent on the host, so compose projects
-will be checked before they run. The `internal/policy` library checks the
+`ki-agent deploy --project app` checks out the project's trigger (the branch
+head, or the newest matching tag), runs `docker compose` on it and waits until
+the services are running and healthy, streaming the log as it goes. `--ref`
+deploys another branch, tag or commit as long as it matches the project's
+trigger; `--detach` returns at once. Only one deploy runs per project at a
+time, and a newer request replaces one that is still waiting. A failed deploy
+leaves the containers as they are; the reason (`policy_violation`,
+`build_failed`, `health_failed`, ...) is shown by the command and by
+`ki-agent deploys get <id>`.
+
+The Compose file is never run as written. The agent normalizes it, checks it
+against the safety policy below and runs exactly that checked, labelled model.
+Services, networks and volumes get `ki.managed`, `ki.project` and `ki.service`
+labels, so they show up in `containers.*` and are removed with the project.
+
+**Environment variables** are set per project and stored encrypted; values are
+never shown again:
+
+```sh
+printf %s "$SECRET" | ki-agent projects env set app API_KEY --value-stdin
+ki-agent projects env import app --file .env.production
+ki-agent projects env list app
+```
+
+They are written to the checkout's `.env` at deploy time and are also used for
+`${VAR}` interpolation of the Compose file. Redeploy to apply a change.
+
+**Webhooks.** Set `webhooks.listen` (for example `127.0.0.1:8090`, behind a
+reverse proxy that terminates TLS, or any address together with
+`webhooks.tls_cert_file` and `webhooks.tls_key_file`) and point GitHub or
+GitLab at `https://<your host>/hooks/<id>` using the path and secret printed by
+`projects create`. A push to the trigger branch (or a tag matching the tag
+pattern) deploys that exact commit; other pushes are ignored. GitHub requests
+are verified with the HMAC signature, GitLab requests with the secret token.
+
+```yaml
+webhooks:
+  listen: 127.0.0.1:8090
+deploys:
+  health_timeout: 5m   # how long to wait for healthy services
+  keep: 50             # deploys kept per project
+```
+
+The agent runs `docker compose` through the Docker CLI at `docker.cli`
+(default `docker`), which must have the Compose v2 plugin; the container image
+includes both.
+
+### Safety policy
+
+Docker group membership is root-equivalent on the host, so every deploy is
+checked before anything runs. The `internal/policy` library checks the
 normalized model from `docker compose config --format json` and rejects, per
 service: `privileged`, host/foreign `network_mode`, `pid`, `ipc`, `uts`,
 `userns_mode` and `cgroup`, `cap_add` outside an allowlist (default
@@ -263,10 +322,10 @@ service: `privileged`, host/foreign `network_mode`, `pid`, `ipc`, `uts`,
 bind mounts outside the project folder (symlinks resolved), any mount of the
 engine socket, named volumes that bind-mount host paths or use non-local
 drivers, external volumes, build contexts, `env_file`, configs and secrets
-outside the project folder, build SSH forwarding, and `sysctls` other than
-`net.*`. These are the usual host-escape routes. The policy is not yet applied
-by any method; deploys will enforce it, failing with `-32007` and the list of
-violations.
+outside the project folder, build SSH forwarding, `sysctls` other than `net.*`,
+`provider` services and any `runtime` other than `runc`. These are the usual
+host-escape routes. A deploy with violations fails with `policy_violation` and
+the list of violations; nothing is built or started.
 
 ## Development
 

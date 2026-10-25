@@ -228,6 +228,161 @@ say.
 `detail` is human readable and has token text redacted. `AlreadyExists`
 (`-32009`) is returned by `projects.create` when the slug is taken.
 
+### Environment variables
+
+`projects.env.set` (`slug`, `vars`: `{NAME: value}`, merged into what is
+stored), `projects.env.unset` (`slug`, `names`) and `projects.env.list`
+(`slug`) manage a project's variables. `set` and `unset` return
+`{names: [...]}` with all names after the change; `list` returns
+`{vars: [{name, updated_at}]}` sorted by name. **Values are write-only**: they
+are encrypted at rest and never returned by any method.
+
+- Names match `^[A-Za-z_][A-Za-z0-9_]*$`; at most 256 variables per project;
+  a value is at most 64 KiB and must not contain NUL. Violations are `-32602`.
+- At deploy time the variables are written to `.env` (mode 0600) in the
+  checkout, which Compose reads, **and** they are used for `${VAR}`
+  interpolation of the Compose file itself. The interpolated model is what is
+  policy-checked and what runs, so a variable cannot smuggle in something the
+  policy would reject.
+- Changes apply to the next deploy; running containers are not touched.
+
+### Deploys
+
+The `deploys` capability covers `deploys.trigger`, `deploys.get`,
+`deploys.list`, `deploys.subscribe`, `deploys.unsubscribe` and the
+`deploys.update` notification. Schemas are in the OpenRPC document; this
+section holds what a schema cannot say.
+
+| Method | Params | Result |
+|---|---|---|
+| `deploys.trigger` | `project`, `ref?` | `Deploy`: `queued`, or `running` if it started at once |
+| `deploys.get` | `id` | `Deploy` |
+| `deploys.list` | `project`, `limit?` (default 20, max 100), `before_id?` | `[Deploy]`, newest first |
+| `deploys.subscribe` | `id`, `since_seq?` | `{subscription}`; ordered `deploys.update` stream |
+| `deploys.unsubscribe` | `subscription` | `{}` |
+
+A `Deploy` has `id`, `project`, `ref` (normalized), `commit` (resolved sha,
+empty until checked out), `source`, `status`, `stage`, `error` (only when
+`failed`), `created_at`, `started_at` and `finished_at` (`null` until set).
+
+- **Source** is set by the agent: `webhook` for webhook deliveries; `api` for
+  `deploys.trigger`, or `cli` when the caller is on the Unix socket.
+- **Statuses.** `queued`, `running`, `succeeded`, `failed`, `superseded`
+  (replaced in the queue by a newer trigger) and `interrupted` (cancelled by
+  agent shutdown or `projects.delete`, or left unfinished by a previous agent
+  process; it is marked at start-up).
+- **Queue.** One deploy runs per project at a time. At most one waits behind
+  it; a newer trigger marks the waiting one `superseded` and takes its place.
+  A running deploy is never cancelled by a trigger. The running deploy holds
+  the project lock, so `projects.update`/`verify` wait for it, and
+  `projects.delete` cancels the project's deploys and waits for them first.
+- **Refs.** `ref` absent: the head of the project's trigger branch, or for a
+  tag trigger the newest remote tag matching `tag_pattern` (version sort).
+  Accepted forms are `refs/heads/<branch>`, `refs/tags/<tag>`, a bare branch or
+  tag name (resolved against the remote, branch first) and a full 40 or 64 hex
+  digit commit sha. Only refs that match the trigger are allowed: a branch
+  trigger accepts its branch (or a sha reachable from that branch's head); a
+  tag trigger accepts tags matching the pattern (or a sha such a tag points
+  at). Anything else is `ref_not_allowed`, which stops a webhook or API caller
+  from deploying arbitrary branches.
+- **Pipeline.** Each stage writes an `agent` log line and updates `stage`:
+
+  | `stage` | What happens |
+  |---|---|
+  | `fetch` | Under the project lock: fetch the ref, detached checkout, record `commit`, write `.env` from the project's variables |
+  | `config` | `docker compose config` normalizes the Compose file (with the variables above interpolated); `include` and `extends.file` paths that are absolute or leave the checkout are rejected |
+  | `policy` | The normalized model is checked against the safety policy; every violation fails the deploy |
+  | `build` | `docker compose build` of the labelled model, output streamed |
+  | `up` | `docker compose up -d --remove-orphans` |
+  | `health` | Wait until every container of the deployed services is `running` and, where a healthcheck exists, `healthy`; fails on `unhealthy`, an exited container or `deploys.health_timeout` (default 5 minutes) |
+
+  Services, networks and volumes are labelled `ki.managed=true`,
+  `ki.project=<slug>` (and `ki.service=<name>` for services). What runs is
+  exactly the labelled model that passed the policy check. On success the
+  project's `commit` is updated. A failure leaves running containers as they
+  are (there is no rollback) and the project's `commit` unchanged.
+- **Failures** are recorded on the deploy (`status: failed`, `error:
+  {reason, detail, violations?}`), not returned as RPC errors:
+
+  | `error.reason` | Meaning |
+  |---|---|
+  | `fetch_failed` | The ref could not be fetched or checked out |
+  | `compose_not_found` | The project's Compose file is missing |
+  | `compose_invalid` | Compose could not normalize the file, or it includes files outside the checkout |
+  | `policy_violation` | The policy rejected the model; `error.violations` lists `{service, rule, detail}` |
+  | `build_failed` | `docker compose build` failed |
+  | `up_failed` | `docker compose up` failed |
+  | `health_failed` | Containers did not become healthy in time, or became unhealthy or exited |
+  | `runtime_unavailable` | The container engine cannot be reached |
+  | `internal` | Any other agent-side failure |
+
+- **Logs.** `deploys.subscribe` is an ordered stream: stored log lines after
+  `since_seq` are replayed, live lines follow, and the stream ends with a
+  `status` update after which the agent closes the subscription. Subscribing
+  to a finished deploy replays the stored log and the final status. The
+  `deploys.update` payload is one of
+  `{"type":"log","seq":7,"stream":"stdout|stderr|agent","text":"..."}` and
+  `{"type":"status","deploy":{...}}`. `seq` numbers the stored lines (use the
+  last one received as `since_seq` after a reconnect); it is absent on lines
+  past the per-deploy cap `deploys.log_max_bytes` (default 1 MiB), which are
+  streamed live but not stored, after one `agent` line saying so. The newest
+  `deploys.keep` (default 50) deploys per project are kept.
+
+`DeployError` (`-32012`) is returned by `deploys.trigger` for failures that
+need no pipeline run, with `data: {reason, detail}`:
+
+| `reason` | Meaning |
+|---|---|
+| `project_not_ready` | The project is `pending_access` |
+| `ref_not_allowed` | The ref does not match the project's trigger |
+| `ref_not_found` | The ref does not exist on the remote, or no tag matches the pattern |
+
+An unknown project or deploy is `-32006`; repository failures while resolving
+the ref are `-32010`, an unreachable engine `-32008`.
+
+### Webhooks
+
+With `webhooks.listen` set (off by default), the agent runs a separate HTTP
+listener that serves only `POST /hooks/<webhook_id>`; everything else is 404.
+A non-loopback address requires `webhooks.tls_cert_file` and
+`webhooks.tls_key_file`. Bodies over `webhooks.max_body_bytes` (default 5 MiB)
+get 413. The id and secret are those of `projects.create` (the path is in
+`Project.webhook.path`).
+
+| Provider | Detected by | Authentication |
+|---|---|---|
+| GitHub | `X-GitHub-Event` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the raw body>` with the secret |
+| GitLab | `X-Gitlab-Event` | `X-Gitlab-Token` equal to the secret |
+
+Responses are small JSON bodies and never echo secrets:
+
+| Status | Body | When |
+|---|---|---|
+| 202 | `{"deploy": <id>}` | A deploy was queued |
+| 202 | `{"ignored": true}` | Unsupported event, deleted ref, or a ref that does not match the project's trigger |
+| 200 | `{"ok": true}` | GitHub `ping` |
+| 200 | `{"duplicate": true}` | The delivery id was already handled |
+| 400 | `{"error": ...}` | Neither provider header, or an invalid payload |
+| 401 | `{"error": ...}` | Missing or wrong signature or token |
+| 404 | `{"error": ...}` | Unknown webhook id, or any other path or method |
+| 409 | `{"error": ...}` | The project is `pending_access` |
+| 413 | `{"error": ...}` | Body too large |
+| 500 | `{"error": ...}` | The agent failed to queue the deploy (no detail is given) |
+
+- GitHub: `push` is handled, other events (except `ping`) are ignored.
+  GitLab: `Push Hook` and `Tag Push Hook` are handled, others ignored.
+- **Dedupe.** Deliveries are remembered by `X-GitHub-Delivery` /
+  `X-Gitlab-Event-UUID` (per project, in memory, up to 1024 entries for 24
+  hours) and repeated ones answer `duplicate`. A delivery that failed with 5xx
+  can be retried.
+- **Push handling.** The payload's `ref` must be `refs/heads/<branch>` for a
+  branch trigger, or `refs/tags/<tag>` matching `tag_pattern` for a tag
+  trigger; otherwise it is ignored. The deploy is pinned to the pushed commit
+  (`after`), not to whatever the branch head is by the time it runs. For tag
+  pushes the tagged commit is used (GitHub `head_commit.id`, GitLab
+  `checkout_sha`; when absent the agent resolves the tag itself).
+- Deploys created this way have `source: webhook`.
+
 ## Enrollment
 
 Enrollment connects an agent to a control plane without hand-editing its
@@ -372,11 +527,12 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32004 | Subscription not found | Unknown subscription id on unsubscribe |
 | -32005 | Overloaded | Reserved; not currently returned |
 | -32006 | Not found | Container or project does not exist (containers not managed by ki count as missing) |
-| -32007 | Policy violation | Reserved for deploys; `data.violations` lists `{service, rule, detail}` |
+| -32007 | Policy violation | Reserved; not currently returned. Deploys report violations on the failed deploy (`error.violations`, `{service, rule, detail}`) |
 | -32008 | Runtime unavailable | The container engine cannot be reached |
 | -32009 | Already exists | `projects.create` with a slug that is taken |
 | -32010 | Repository error | A Git operation failed; `data` is `{reason, detail}`, see [Projects](#projects) |
 | -32011 | Enrollment error | Enrollment failed; `data` is `{reason, detail}`, see [Enrollment](#local-enrollment-methods) |
+| -32012 | Deploy error | `deploys.trigger` was rejected; `data` is `{reason, detail}`, see [Deploys](#deploys) |
 
 ## Versioning
 
@@ -409,7 +565,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","enrollment"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","enrollment"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}
