@@ -335,3 +335,77 @@ func TestExampleConfig(t *testing.T) {
 		t.Fatalf("example config differs from defaults:\n got %+v\nwant %+v", *cfg, Default())
 	}
 }
+
+func TestEdgeDefaultsEnv(t *testing.T) {
+	d := Default().Edge
+	if !d.Enabled || d.Image != "" || d.HTTPPort != 80 || d.HTTPSPort != 443 || d.WebhooksPort != 8090 {
+		t.Fatalf("defaults = %+v", d)
+	}
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_EDGE_ENABLED":       "false",
+		"KI_EDGE_IMAGE":         "caddy:2",
+		"KI_EDGE_HTTP_PORT":     "8080",
+		"KI_EDGE_HTTPS_PORT":    "8443",
+		"KI_EDGE_DOMAIN":        "ki.example.com",
+		"KI_EDGE_ACME_EMAIL":    "ops@example.com",
+		"KI_EDGE_WEBHOOKS_PORT": "9000",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Edge{Image: "caddy:2", HTTPPort: 8080, HTTPSPort: 8443, Domain: "ki.example.com", ACMEEmail: "ops@example.com", WebhooksPort: 9000}
+	if cfg.Edge != want {
+		t.Fatalf("edge = %+v, want %+v", cfg.Edge, want)
+	}
+	for _, env := range []map[string]string{
+		{"KI_EDGE_ENABLED": "maybe"},
+		{"KI_EDGE_HTTP_PORT": "eighty"},
+	} {
+		if _, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(env)); err == nil {
+			t.Fatalf("env %v: want error", env)
+		}
+	}
+}
+
+func TestEdgeValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		mod  func(*Config)
+		want string // empty = valid
+	}{
+		{"defaults", func(c *Config) {}, ""},
+		{"ok domain", func(c *Config) { c.Edge.Domain = "ki.example.com" }, ""},
+		{"ok email", func(c *Config) { c.Edge.ACMEEmail = "a@b.co" }, ""},
+		{"disabled ignores", func(c *Config) { c.Edge.Enabled = false; c.Edge.HTTPPort = 0 }, ""},
+		{"zero port", func(c *Config) { c.Edge.HTTPPort = 0 }, "http_port"},
+		{"big port", func(c *Config) { c.Edge.HTTPSPort = 70000 }, "https_port"},
+		{"bad webhooks port", func(c *Config) { c.Edge.WebhooksPort = -1 }, "webhooks_port"},
+		{"http=https", func(c *Config) { c.Edge.HTTPSPort = 80 }, "distinct"},
+		{"https=webhooks", func(c *Config) { c.Edge.WebhooksPort = 443 }, "distinct"},
+		{"http=webhooks", func(c *Config) { c.Edge.WebhooksPort = 80 }, "distinct"},
+		{"no dot", func(c *Config) { c.Edge.Domain = "localhost" }, "edge.domain"},
+		{"wildcard", func(c *Config) { c.Edge.Domain = "*.example.com" }, "edge.domain"},
+		{"uppercase", func(c *Config) { c.Edge.Domain = "Ki.example.com" }, "edge.domain"},
+		{"ip", func(c *Config) { c.Edge.Domain = "10.0.0.1" }, "edge.domain"},
+		{"numeric tld", func(c *Config) { c.Edge.Domain = "ki.example.123" }, "edge.domain"},
+		{"empty label", func(c *Config) { c.Edge.Domain = "a..com" }, "edge.domain"},
+		{"email no at", func(c *Config) { c.Edge.ACMEEmail = "nobody" }, "acme_email"},
+		{"email space", func(c *Config) { c.Edge.ACMEEmail = "a b@c.d" }, "acme_email"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Default()
+			tt.mod(&c)
+			err := c.Validate()
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("Validate = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}

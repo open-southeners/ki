@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/open-southeners/ki-agent/internal/edge/certs"
 )
 
 // DefaultPath is where the config file is read from when --config is not given.
@@ -250,6 +252,49 @@ type Deploys struct {
 	LogMaxBytes int64 `yaml:"log_max_bytes"`
 }
 
+// Edge configures the managed reverse proxy that routes project domains.
+type Edge struct {
+	// Enabled turns the managed edge proxy on.
+	Enabled bool `yaml:"enabled"`
+	// Image is the proxy container image; empty selects the pinned default.
+	Image string `yaml:"image"`
+	// HTTPPort and HTTPSPort are the host ports the proxy publishes.
+	HTTPPort  int `yaml:"http_port"`
+	HTTPSPort int `yaml:"https_port"`
+	// Domain is the standalone server domain, served with ACME certificates.
+	Domain string `yaml:"domain"`
+	// ACMEEmail is the optional ACME account contact.
+	ACMEEmail string `yaml:"acme_email"`
+	// WebhooksPort is the loopback port the webhook listener uses when
+	// webhooks.listen is empty.
+	WebhooksPort int `yaml:"webhooks_port"`
+}
+
+func validPort(n int) bool { return n >= 1 && n <= 65535 }
+
+func (e Edge) validate() error {
+	for _, p := range []struct {
+		key string
+		n   int
+	}{{"http_port", e.HTTPPort}, {"https_port", e.HTTPSPort}, {"webhooks_port", e.WebhooksPort}} {
+		if !validPort(p.n) {
+			return fmt.Errorf("edge.%s %d must be between 1 and 65535", p.key, p.n)
+		}
+	}
+	if e.HTTPPort == e.HTTPSPort || e.HTTPPort == e.WebhooksPort || e.HTTPSPort == e.WebhooksPort {
+		return errors.New("edge.http_port, edge.https_port and edge.webhooks_port must be distinct")
+	}
+	if e.Domain != "" {
+		if err := certs.ValidHostname(e.Domain); err != nil {
+			return fmt.Errorf("edge.domain: %w", err)
+		}
+	}
+	if e.ACMEEmail != "" && (!strings.Contains(e.ACMEEmail, "@") || strings.ContainsAny(e.ACMEEmail, " \t\r\n")) {
+		return fmt.Errorf("edge.acme_email %q must contain @ and no spaces", e.ACMEEmail)
+	}
+	return nil
+}
+
 // Config is the full agent configuration.
 type Config struct {
 	DataDir   string    `yaml:"data_dir"`
@@ -259,6 +304,7 @@ type Config struct {
 	Docker    Docker    `yaml:"docker"`
 	Webhooks  Webhooks  `yaml:"webhooks"`
 	Deploys   Deploys   `yaml:"deploys"`
+	Edge      Edge      `yaml:"edge"`
 
 	ControlPlane ControlPlane `yaml:"control_plane"`
 }
@@ -271,6 +317,7 @@ func Default() Config {
 		Socket:   Socket{Path: "/run/ki-agent/ki.sock", Mode: 0o660},
 		Docker:   Docker{Host: "unix:///var/run/docker.sock", CLI: "docker"},
 		Webhooks: Webhooks{MaxBodyBytes: 5 << 20},
+		Edge:     Edge{Enabled: true, HTTPPort: 80, HTTPSPort: 443, WebhooksPort: 8090},
 		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20},
 		WebSocket: WebSocket{
 			Path:              "/rpc",
@@ -364,6 +411,27 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 	if err := num("KI_WEBHOOKS_MAX_BODY_BYTES", &cfg.Webhooks.MaxBodyBytes); err != nil {
 		return err
 	}
+	if v, ok := lookup("KI_EDGE_ENABLED"); ok {
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("KI_EDGE_ENABLED: %w", err)
+		}
+		cfg.Edge.Enabled = b
+	}
+	str("KI_EDGE_IMAGE", &cfg.Edge.Image)
+	str("KI_EDGE_DOMAIN", &cfg.Edge.Domain)
+	str("KI_EDGE_ACME_EMAIL", &cfg.Edge.ACMEEmail)
+	for key, dst := range map[string]*int{
+		"KI_EDGE_HTTP_PORT":     &cfg.Edge.HTTPPort,
+		"KI_EDGE_HTTPS_PORT":    &cfg.Edge.HTTPSPort,
+		"KI_EDGE_WEBHOOKS_PORT": &cfg.Edge.WebhooksPort,
+	} {
+		n := int64(*dst)
+		if err := num(key, &n); err != nil {
+			return err
+		}
+		*dst = int(n)
+	}
 	if err := dur("KI_DEPLOYS_HEALTH_TIMEOUT", &cfg.Deploys.HealthTimeout); err != nil {
 		return err
 	}
@@ -427,6 +495,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Deploys.LogMaxBytes <= 0 {
 		return errors.New("deploys.log_max_bytes must be positive")
+	}
+	if c.Edge.Enabled {
+		if err := c.Edge.validate(); err != nil {
+			return err
+		}
 	}
 	if c.Webhooks.Enabled() {
 		if err := c.Webhooks.validate(); err != nil {
