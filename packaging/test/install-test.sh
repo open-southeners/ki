@@ -66,6 +66,35 @@ assert "service user not in docker group" sh -c 'id -nG ki-agent | tr " " "\n" |
 assert "nobody not in ki-agent group" sh -c 'id -nG nobody | tr " " "\n" | grep -qx ki-agent'
 assert "service not enabled and started" grep -q 'enable --now ki-agent.service' "$WORK/systemctl.log"
 
+edge_enabled() {
+	awk '/^edge:/ { e = 1; next } /^[^ #]/ { e = 0 } e && /^  enabled:/ { print $2; exit }' /etc/ki-agent/config.yaml
+}
+assert "default config does not enable the edge" test "$(edge_enabled)" = true
+
+echo "== --no-edge on a new config disables the edge"
+rm -f /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" --no-edge >"$WORK/out.log" 2>&1 || fail "install --no-edge failed"
+assert "edge not disabled in the new config" test "$(edge_enabled)" = false
+assert "other config keys were damaged" grep -q '^  webhooks_port: 8090$' /etc/ki-agent/config.yaml
+
+echo "== --no-edge leaves an existing config alone and says how"
+rm -f /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >/dev/null 2>&1
+echo "# keep" >>/etc/ki-agent/config.yaml
+sh "$SRC/install.sh" --no-edge >"$WORK/out.log" 2>&1 || fail "install --no-edge failed"
+assert "existing config was edited" test "$(edge_enabled)" = true
+assert "no instruction printed" grep -q 'already exists and was not changed' "$WORK/out.log"
+
+echo "== busy port 80 is reported on a fresh config"
+printf '#!/bin/sh\necho "LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*"\necho "LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*"\n' >"$STUBS/ss"
+chmod +x "$STUBS/ss"
+rm -f /usr/local/bin/ki-agent /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >"$WORK/out.log" 2>&1 || fail "install failed"
+assert "no warning for port 80" grep -q 'already listens on port(s) 80 ' "$WORK/out.log"
+if grep -q 'port(s).*22' "$WORK/out.log"; then fail "unrelated port reported"; fi
+rm -f "$STUBS/ss" /usr/local/bin/ki-agent /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >/dev/null 2>&1 || fail "reinstall failed"
+
 echo "== upgrade keeps edited config"
 echo "# edited by the admin" >>/etc/ki-agent/config.yaml
 : >"$WORK/systemctl.log"

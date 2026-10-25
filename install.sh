@@ -38,6 +38,9 @@ Options:
                      or the compose plugin is missing.
   --enroll [URL]     After installing, run "ki-agent enroll [URL]" to connect
                      this server to a control plane.
+  --no-edge          Disable the managed reverse proxy (edge) in a newly
+                     written config (edge.enabled: false). By default the
+                     edge binds ports 80 and 443.
   --no-start         Install and enable the service but do not start it.
   --add-user USER    Add USER to the ki-agent group so it can use the CLI
                      (default: the user who ran sudo).
@@ -145,6 +148,20 @@ verify_signature() {
 	log "signature verified with cosign"
 }
 
+# listening_web_ports prints the ports 80 and 443 that something listens on,
+# one per line; it prints nothing when neither is taken or when neither ss nor
+# netstat is available.
+listening_web_ports() {
+	if have ss; then
+		_listing=$(ss -H -ltn 2>/dev/null) || return 0
+	elif have netstat; then
+		_listing=$(netstat -ltn 2>/dev/null) || return 0
+	else
+		return 0
+	fi
+	printf '%s\n' "$_listing" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /[:.](80|443)$/) { n = split($i, a, /[:.]/); print a[n]; break } }' | sort -u
+}
+
 # nologin_shell prints the path of a shell that refuses logins.
 nologin_shell() {
 	for _s in /usr/sbin/nologin /sbin/nologin /usr/bin/nologin /bin/false; do
@@ -183,6 +200,7 @@ main() {
 	do_enroll=0
 	enroll_url=""
 	no_start=0
+	no_edge=0
 	add_user=${SUDO_USER:-}
 
 	while [ $# -gt 0 ]; do
@@ -208,6 +226,10 @@ main() {
 					;;
 				esac
 			fi
+			;;
+		--no-edge)
+			no_edge=1
+			shift
 			;;
 		--no-start)
 			no_start=1
@@ -340,6 +362,25 @@ main() {
 	if [ ! -e "$CONFIG_PATH" ]; then
 		install -m 0640 -g "$SVC_GROUP" "$TMPDIR_KI/extract/config.example.yaml" "$CONFIG_PATH"
 		config_note="wrote default $CONFIG_PATH"
+		if [ "$no_edge" -eq 1 ]; then
+			# Flip the first "enabled:" key inside the edge: section.
+			awk '
+				/^edge:/ { inedge = 1; print; next }
+				/^[^ #]/ { inedge = 0 }
+				inedge && !done && /^  enabled:/ { print "  enabled: false"; done = 1; next }
+				{ print }
+			' "$CONFIG_PATH" >"$CONFIG_PATH.new.$$"
+			cat "$CONFIG_PATH.new.$$" >"$CONFIG_PATH"
+			rm -f "$CONFIG_PATH.new.$$"
+			config_note="$config_note (edge disabled)"
+		elif [ "$upgrade" -eq 0 ]; then
+			taken=$(listening_web_ports | tr '\n' ' ')
+			if [ -n "$taken" ]; then
+				warn "something already listens on port(s) ${taken}which the edge proxy needs (80 and 443); the edge will report an error until they are free. Stop that service, change edge.http_port/edge.https_port in $CONFIG_PATH, or reinstall with --no-edge"
+			fi
+		fi
+	elif [ "$no_edge" -eq 1 ]; then
+		warn "$CONFIG_PATH already exists and was not changed; to disable the edge set \"enabled: false\" under \"edge:\" there (or KI_EDGE_ENABLED=false) and restart the service"
 	fi
 
 	service_state="not managed (systemd not running)"
