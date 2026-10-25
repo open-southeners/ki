@@ -218,3 +218,22 @@ func (s *Service) runOnDelete(ctx context.Context, slug string) {
 		fn(ctx, slug)
 	}
 }
+
+// OnDeleted registers fn to run after a project has been deleted completely
+// (containers, checkout and record gone). Hooks run in registration order
+// with the Delete context and the project lock released; registration is safe
+// at any time from any goroutine.
+func (s *Service) OnDeleted(fn func(ctx context.Context, slug string)) {
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
+	s.onDeleted = append(s.onDeleted, fn)
+}
+
+func (s *Service) runOnDeleted(ctx context.Context, slug string) {
+	s.hookMu.Lock()
+	hooks := append([]func(ctx context.Context, slug string){}, s.onDeleted...)
+	s.hookMu.Unlock()
+	for _, fn := range hooks {
+		fn(ctx, slug)
+	}
+}

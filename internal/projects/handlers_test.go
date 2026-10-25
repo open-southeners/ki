@@ -26,6 +26,8 @@ func TestMapError(t *testing.T) {
 			rpc.CodeRepositoryError, `{"detail":"denied","reason":"auth_failed"}`},
 		{"not found", fmt.Errorf("x: %w", store.ErrNotFound), rpc.CodeNotFound, ""},
 		{"exists", store.ErrExists, rpc.CodeAlreadyExists, ""},
+		{"domain conflict", fmt.Errorf("x: %w", &store.DomainConflictError{Domain: "a.example.com", Project: "other", Service: "web"}),
+			rpc.CodeAlreadyExists, `{"domain":"a.example.com","project":"other"}`},
 		{"unavailable", runtime.ErrUnavailable, rpc.CodeRuntimeUnavailable, ""},
 	}
 	for _, tt := range tests {

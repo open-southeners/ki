@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -112,7 +113,7 @@ func TestProjectsEndToEnd(t *testing.T) {
 	wantCode(t, c.call(t, "projects.get", map[string]any{"slug": "nope"}, nil), rpc.CodeNotFound)
 
 	var got projects.Project
-	if err := c.call(t, "projects.get", map[string]any{"slug": "demo"}, &got); err != nil || got != created.Project {
+	if err := c.call(t, "projects.get", map[string]any{"slug": "demo"}, &got); err != nil || !reflect.DeepEqual(got, created.Project) {
 		t.Fatalf("get = %+v, %v", got, err)
 	}
 	var list []projects.Project

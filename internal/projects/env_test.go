@@ -190,3 +190,25 @@ func TestOnDeleteRunsBeforeLock(t *testing.T) {
 		t.Errorf("hook calls = %d", calls.Load())
 	}
 }
+
+func TestOnDeletedRunsAfterDelete(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	e.seedProject(t, "app")
+	var calls atomic.Int32
+	e.svc.OnDeleted(func(ctx context.Context, slug string) {
+		calls.Add(1)
+		if _, err := e.svc.Get(ctx, slug); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("project still present in OnDeleted: %v", err)
+		}
+	})
+	if _, err := e.svc.Delete(ctx, "nope", false); err == nil || calls.Load() != 0 {
+		t.Fatalf("unknown: err = %v calls = %d", err, calls.Load())
+	}
+	if _, err := e.svc.Delete(ctx, "app", false); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("hook calls = %d", calls.Load())
+	}
+}

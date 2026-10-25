@@ -75,7 +75,11 @@ type Options struct {
 	Protocols []string
 	// GitTimeout bounds create and verify (default DefaultGitTimeout).
 	GitTimeout time.Duration
-	Logger     *slog.Logger
+	// ReservedHostnames returns the server's own hostnames (edge domain,
+	// control-plane host), which projects cannot expose. Optional; it can also
+	// be set later with SetReservedHostnames.
+	ReservedHostnames func() []string
+	Logger            *slog.Logger
 }
 
 // Service creates, inspects, updates and deletes projects.
@@ -89,12 +93,17 @@ type Service struct {
 	protocols []string
 	timeout   time.Duration
 	log       *slog.Logger
+	dataDir   string
 
 	mu    sync.Mutex
 	locks map[string]*slugLock
 
-	hookMu   sync.Mutex
-	onDelete []func(ctx context.Context, slug string)
+	hookMu    sync.Mutex
+	onDelete  []func(ctx context.Context, slug string)
+	onDeleted []func(ctx context.Context, slug string)
+
+	reserved   func() []string
+	onExposure []func()
 }
 
 type slugLock struct {
@@ -117,6 +126,8 @@ func New(opts Options) (*Service, error) {
 		protocols: opts.Protocols,
 		timeout:   opts.GitTimeout,
 		log:       opts.Logger,
+		dataDir:   opts.DataDir,
+		reserved:  opts.ReservedHostnames,
 		locks:     make(map[string]*slugLock),
 	}
 	if len(s.protocols) == 0 {
@@ -170,6 +181,9 @@ type Project struct {
 	Commit        string  `json:"commit"`
 	CreatedAt     string  `json:"created_at"`
 	UpdatedAt     string  `json:"updated_at"`
+	// Exposure is the effective exposure, sorted by service; omitted when empty.
+	Exposure         []Exposure `json:"exposure,omitempty"`
+	ExposureWarnings []string   `json:"exposure_warnings,omitempty"`
 }
 
 func view(p *store.Project) Project {
@@ -542,6 +556,7 @@ func (s *Service) Get(ctx context.Context, slug string) (*Project, error) {
 		return nil, err
 	}
 	v := view(p)
+	s.decorate(ctx, &v)
 	return &v, nil
 }
 
@@ -553,7 +568,9 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 	}
 	out := make([]Project, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, view(p))
+		v := view(p)
+		s.decorate(ctx, &v)
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -587,6 +604,7 @@ func (s *Service) Verify(ctx context.Context, slug string) (*Project, error) {
 	}
 	s.log.Info("project verified", "slug", slug, "commit", p.Commit)
 	v := view(p)
+	s.decorate(ctx, &v)
 	return &v, nil
 }
 
@@ -704,6 +722,7 @@ func (s *Service) Update(ctx context.Context, in UpdateParams) (*Result, error) 
 	s.log.Info("project updated", "slug", p.Slug,
 		"rotated_webhook_secret", in.RotateWebhookSecret, "rotated_deploy_key", in.RotateDeployKey)
 	res.Project = view(p)
+	s.decorate(ctx, &res.Project)
 	return res, nil
 }
 
@@ -715,6 +734,15 @@ func (s *Service) Delete(ctx context.Context, slug string, volumes bool) (runtim
 		return runtime.PruneReport{}, err
 	}
 	s.runOnDelete(ctx, slug) // before the lock: hooks may wait for lock holders
+	rep, err := s.deleteLocked(ctx, slug, volumes)
+	if err != nil {
+		return runtime.PruneReport{}, err
+	}
+	s.runOnDeleted(ctx, slug) // after the lock is released
+	return rep, nil
+}
+
+func (s *Service) deleteLocked(ctx context.Context, slug string, volumes bool) (runtime.PruneReport, error) {
 	unlock := s.lock(slug)
 	defer unlock()
 	if _, err := s.st.GetProject(ctx, slug); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/open-southeners/ki-agent/internal/git"
 	"github.com/open-southeners/ki-agent/internal/rpc"
@@ -19,6 +20,9 @@ const (
 	MethodUpdate = "projects.update"
 	MethodVerify = "projects.verify"
 	MethodDelete = "projects.delete"
+
+	MethodExpose   = "projects.expose"
+	MethodUnexpose = "projects.unexpose"
 
 	MethodEnvSet   = "projects.env.set"
 	MethodEnvUnset = "projects.env.unset"
@@ -42,6 +46,8 @@ func (h *Handlers) Register(r *rpc.Router) {
 	r.Handle(MethodUpdate, h.update)
 	r.Handle(MethodVerify, h.verify)
 	r.Handle(MethodDelete, h.delete)
+	r.Handle(MethodExpose, h.expose)
+	r.Handle(MethodUnexpose, h.unexpose)
 	r.Handle(MethodEnvSet, h.envSet)
 	r.Handle(MethodEnvUnset, h.envUnset)
 	r.Handle(MethodEnvList, h.envList)
@@ -52,6 +58,7 @@ func mapError(err error) error {
 	var (
 		inv *InvalidError
 		ge  *git.Error
+		dc  *store.DomainConflictError
 	)
 	switch {
 	case err == nil:
@@ -65,6 +72,9 @@ func mapError(err error) error {
 		}
 		return rpc.NewError(rpc.CodeRepositoryError, msg).
 			WithData(map[string]string{"reason": ge.Reason, "detail": ge.Detail})
+	case errors.As(err, &dc):
+		return rpc.NewError(rpc.CodeAlreadyExists, fmt.Sprintf("domain %q is already exposed by project %q", dc.Domain, dc.Project)).
+			WithData(map[string]string{"domain": dc.Domain, "project": dc.Project})
 	case errors.Is(err, store.ErrNotFound):
 		return rpc.NewError(rpc.CodeNotFound, "project not found")
 	case errors.Is(err, store.ErrExists):
@@ -203,4 +213,31 @@ func (h *Handlers) envList(ctx context.Context, _ *rpc.Peer, params json.RawMess
 		return nil, mapError(err)
 	}
 	return map[string][]EnvEntry{"vars": vars}, nil
+}
+
+func (h *Handlers) expose(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+	var in ExposeParams
+	if err := decodeSlug(params, &in, &in.Slug); err != nil {
+		return nil, err
+	}
+	p, err := h.svc.Expose(ctx, in)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return p, nil
+}
+
+func (h *Handlers) unexpose(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+	var in struct {
+		Slug    string `json:"slug"`
+		Service string `json:"service"`
+	}
+	if err := decodeSlug(params, &in, &in.Slug); err != nil {
+		return nil, err
+	}
+	p, err := h.svc.Unexpose(ctx, in.Slug, in.Service)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return p, nil
 }
