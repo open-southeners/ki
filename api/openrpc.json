@@ -889,6 +889,403 @@
       ]
     },
     {
+      "name": "projects.env.set",
+      "summary": "Set project environment variables.",
+      "description": "Merges vars into the project's stored variables; existing names are overwritten, others are kept. Values are encrypted at rest and never returned by any method. At deploy time they are written to the checkout's .env file and also used for ${VAR} interpolation of the compose file. Names must match ^[A-Za-z_][A-Za-z0-9_]*$; a project holds at most 256 variables, values are at most 64 KiB and must not contain NUL.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "vars",
+          "description": "Variables to set, name to value.",
+          "required": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "result": {
+        "name": "names",
+        "schema": {
+          "$ref": "#/components/schemas/EnvNames"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "projects.env.unset",
+      "summary": "Remove project environment variables.",
+      "description": "Removes the named variables; names that are not set are ignored.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "names",
+          "description": "Variable names to remove.",
+          "required": true,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "result": {
+        "name": "names",
+        "schema": {
+          "$ref": "#/components/schemas/EnvNames"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "projects.env.list",
+      "summary": "List the names of a project's environment variables.",
+      "description": "Never returns values.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "vars",
+        "schema": {
+          "type": "object",
+          "required": [
+            "vars"
+          ],
+          "properties": {
+            "vars": {
+              "type": "array",
+              "description": "Sorted by name.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "updated_at"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "deploys.trigger",
+      "summary": "Queue a deploy of a project.",
+      "description": "Checks that the project is ready and that ref is allowed for the project's trigger, records a queued deploy and returns it (status running when it started at once). One deploy runs per project at a time; at most one waits behind it, and a newer trigger supersedes the waiting one. A running deploy is never cancelled by a trigger. Pipeline failures are not errors of this call: they are recorded on the deploy (status failed, error). The source is api, or cli when called over the Unix socket.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "project",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "ref",
+          "description": "What to deploy: refs/heads/<branch>, refs/tags/<tag>, a bare branch or tag name, or a full 40 or 64 hex digit commit sha. Absent: the head of the trigger branch, or the newest tag matching the trigger's tag_pattern. Only refs matching the project's trigger are allowed (the trigger branch, or tags matching the pattern; a sha must be reachable from the branch head or be pointed at by a matching tag).",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "deploy",
+        "schema": {
+          "$ref": "#/components/schemas/Deploy"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/DeployError"
+        },
+        {
+          "$ref": "#/components/errors/RepositoryError"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "deploys.get",
+      "summary": "Get a deploy.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Deploy id.",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "deploy",
+        "schema": {
+          "$ref": "#/components/schemas/Deploy"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "deploys.list",
+      "summary": "List a project's deploys, newest first.",
+      "description": "History is kept per project up to deploys.keep entries (default 50).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "project",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "limit",
+          "description": "Defaults to 20; values above 100 are clamped to 100.",
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        {
+          "name": "before_id",
+          "description": "Only deploys with a smaller id; pass the last id of the previous page to paginate.",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "deploys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Deploy"
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "deploys.subscribe",
+      "summary": "Stream a deploy's log and final status as deploys.update notifications.",
+      "description": "An ordered stream (see SubscriptionUpdate). The stored log is replayed first (lines after since_seq), then live lines follow; the stream ends with a status update carrying the final Deploy, after which the subscription is closed by the agent. Subscribing to a finished deploy replays its stored log and then sends the final status. The deploy is checked before the subscription id is returned, so an unknown deploy fails with NotFound.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "id",
+          "description": "Deploy id.",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        {
+          "name": "since_seq",
+          "description": "Replay only stored log lines with a seq greater than this; use the seq of the last line received to resume after a reconnect. Defaults to 0 (everything).",
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "result": {
+        "name": "subscription",
+        "schema": {
+          "type": "object",
+          "required": [
+            "subscription"
+          ],
+          "properties": {
+            "subscription": {
+              "$ref": "#/components/schemas/SubscriptionID"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "deploys.unsubscribe",
+      "summary": "Stop a deploy subscription.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "subscription",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionID"
+          }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/SubscriptionNotFound"
+        }
+      ]
+    },
+    {
+      "name": "deploys.update",
+      "summary": "Notification sent by the agent for a deploy subscription.",
+      "description": "Sent from agent to client; it has no id and expects no response. It is not a callable method.",
+      "x-notification": true,
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "update",
+          "description": "The subscription update envelope; data carries a log line or the final status.",
+          "required": true,
+          "schema": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionUpdate"
+              },
+              {
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/DeployUpdate"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "enrollment.start",
       "summary": "Start enrolling the agent with a control plane (local socket only).",
       "description": "Local-only: any transport other than the Unix socket is refused with Unauthorized. Discovers the enrollment endpoints under url, requests a device code and returns the code the operator must approve. Polling then runs in the background, bound to this connection: it is cancelled when the connection closes. Call enrollment.wait on the same connection to learn the outcome. On approval the credentials are stored in the data directory and the outbound control-plane connection starts at once, replacing any configured one. Only one enrollment may be in progress per agent.",
@@ -1462,6 +1859,235 @@
             }
           }
         }
+      },
+      "EnvNames": {
+        "type": "object",
+        "description": "Names of all variables of a project after the change.",
+        "required": [
+          "names"
+        ],
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Deploy": {
+        "type": "object",
+        "description": "One deploy of a project.",
+        "required": [
+          "id",
+          "project",
+          "ref",
+          "commit",
+          "source",
+          "status",
+          "stage",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "project": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string",
+            "description": "The requested ref, normalized (refs/heads/..., refs/tags/... or a sha)."
+          },
+          "commit": {
+            "type": "string",
+            "description": "Resolved commit sha; empty until the checkout stage has run."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "webhook",
+              "api",
+              "cli"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "superseded",
+              "interrupted"
+            ],
+            "description": "superseded: replaced in the queue by a newer trigger. interrupted: cancelled by agent shutdown or project deletion, or left unfinished by a previous agent process."
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "fetch",
+              "config",
+              "policy",
+              "build",
+              "up",
+              "health"
+            ],
+            "description": "Last pipeline stage reached; empty while queued."
+          },
+          "error": {
+            "$ref": "#/components/schemas/DeployFailure"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DeployFailure": {
+        "type": "object",
+        "description": "Why a deploy failed; present only when status is failed.",
+        "required": [
+          "reason",
+          "detail"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "fetch_failed",
+              "compose_not_found",
+              "compose_invalid",
+              "policy_violation",
+              "build_failed",
+              "up_failed",
+              "health_failed",
+              "runtime_unavailable",
+              "internal"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "violations": {
+            "type": "array",
+            "description": "Present when reason is policy_violation.",
+            "items": {
+              "type": "object",
+              "required": [
+                "service",
+                "rule",
+                "detail"
+              ],
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "rule": {
+                  "type": "string",
+                  "description": "Stable rule identifier, for example privileged."
+                },
+                "detail": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "DeployError": {
+        "type": "object",
+        "description": "Data of a DeployError error.",
+        "required": [
+          "reason",
+          "detail"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "project_not_ready",
+              "ref_not_allowed",
+              "ref_not_found"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "DeployUpdate": {
+        "description": "Payload of a deploys.update notification.",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "stream",
+              "text"
+            ],
+            "properties": {
+              "type": {
+                "const": "log"
+              },
+              "seq": {
+                "type": "integer",
+                "description": "Stored line number, usable as since_seq. Absent for lines beyond the per-deploy log cap (deploys.log_max_bytes), which are streamed live but not stored."
+              },
+              "stream": {
+                "type": "string",
+                "enum": [
+                  "stdout",
+                  "stderr",
+                  "agent"
+                ],
+                "description": "agent lines are the agent's own stage markers."
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "deploy"
+            ],
+            "properties": {
+              "type": {
+                "const": "status"
+              },
+              "deploy": {
+                "$ref": "#/components/schemas/Deploy"
+              }
+            }
+          }
+        ]
       }
     },
     "errors": {
@@ -1480,7 +2106,8 @@
       "RuntimeUnavailable": { "code": -32008, "message": "Container runtime unavailable" },
       "AlreadyExists": { "code": -32009, "message": "Project already exists" },
       "RepositoryError": { "code": -32010, "message": "Repository error", "data": "Object {reason, detail}; reason is one of invalid_url, unreachable, auth_failed, not_found, ref_not_found, compose_not_found, failed." },
-      "EnrollmentError": { "code": -32011, "message": "Enrollment error", "data": "Object {reason, detail}; reason is one of unreachable, invalid_response, denied, expired, failed." }
+      "EnrollmentError": { "code": -32011, "message": "Enrollment error", "data": "Object {reason, detail}; reason is one of unreachable, invalid_response, denied, expired, failed." },
+      "DeployError": { "code": -32012, "message": "Deploy error", "data": "Object {reason, detail}; reason is one of project_not_ready, ref_not_allowed, ref_not_found; see the DeployError schema." }
     }
   }
 }

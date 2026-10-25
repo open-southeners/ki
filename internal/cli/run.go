@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,9 +15,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-southeners/ki-agent/internal/agent"
+	"github.com/open-southeners/ki-agent/internal/compose"
 	"github.com/open-southeners/ki-agent/internal/config"
 	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/controlplane"
+	"github.com/open-southeners/ki-agent/internal/deploys"
 	"github.com/open-southeners/ki-agent/internal/enroll"
 	"github.com/open-southeners/ki-agent/internal/enrollment"
 	"github.com/open-southeners/ki-agent/internal/git"
@@ -27,6 +30,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/server"
 	"github.com/open-southeners/ki-agent/internal/store"
 	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki-agent/internal/webhooks"
 )
 
 func newRunCmd(f *flags) *cobra.Command {
@@ -64,13 +68,17 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	logger := slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: level}))
 
-	for _, d := range []string{
-		cfg.DataDir,
-		filepath.Join(cfg.DataDir, "tmp"),
-		filepath.Join(cfg.DataDir, "projects"),
-		filepath.Join(cfg.DataDir, "git", "home"),
+	for _, d := range []struct {
+		path string
+		perm os.FileMode
+	}{
+		{cfg.DataDir, 0o750},
+		{filepath.Join(cfg.DataDir, "tmp"), 0o750},
+		{filepath.Join(cfg.DataDir, "projects"), 0o750},
+		{filepath.Join(cfg.DataDir, "git", "home"), 0o750},
+		{filepath.Join(cfg.DataDir, "deploys"), 0o700},
 	} {
-		if err := os.MkdirAll(d, 0o750); err != nil {
+		if err := os.MkdirAll(d.path, d.perm); err != nil {
 			return fmt.Errorf("create data dir: %w", err)
 		}
 	}
@@ -114,6 +122,34 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return err
 	}
 
+	// The deploy manager is closed (cancelling and recording running deploys)
+	// before the store closes: defers run last-in first-out.
+	deployMgr, err := deploys.New(deploys.Options{
+		Store:    db,
+		Projects: projSvc,
+		Git:      gitClient,
+		Compose: &compose.Runner{
+			CLI:        cfg.Docker.CLI,
+			DockerHost: cfg.Docker.Host,
+			Home:       filepath.Join(cfg.DataDir, "git", "home"),
+			Logger:     logger,
+		},
+		Runtime:       rt,
+		DataDir:       cfg.DataDir,
+		HealthTimeout: cfg.Deploys.HealthTimeout,
+		Keep:          cfg.Deploys.Keep,
+		LogMaxBytes:   int(cfg.Deploys.LogMaxBytes),
+		Logger:        logger,
+	})
+	if err != nil {
+		return err
+	}
+	if err := deployMgr.Start(ctx); err != nil {
+		return err
+	}
+	defer deployMgr.Close()
+	projSvc.OnDelete(deployMgr.Cancel)
+
 	tlsCfg, err := cfg.ControlPlane.TLSConfig()
 	if err != nil {
 		return err
@@ -123,6 +159,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	ag.Register(router)
 	containers.New(rt, logger).Register(router)
 	projects.NewHandlers(projSvc).Register(router)
+	deploys.NewHandlers(deployMgr).Register(router)
 	srv, err := server.New(server.Options{Config: cfg, Router: router, Logger: logger})
 	if err != nil {
 		return err
@@ -143,6 +180,37 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return err
 	}
 
+	if cfg.Webhooks.Enabled() {
+		ln, err := net.Listen("tcp", cfg.Webhooks.Listen)
+		if err != nil {
+			return fmt.Errorf("webhooks listen: %w", err)
+		}
+		whSrv := &webhooks.Server{
+			Addr:        cfg.Webhooks.Listen,
+			TLSCertFile: cfg.Webhooks.TLSCertFile,
+			TLSKeyFile:  cfg.Webhooks.TLSKeyFile,
+			Logger:      logger,
+			Handler: webhooks.NewHandler(webhooks.Options{
+				Projects:     webhookProjects{projSvc},
+				Deployer:     deployMgr.Deployer(),
+				MaxBodyBytes: cfg.Webhooks.MaxBodyBytes,
+				Logger:       logger,
+			}),
+		}
+		whCtx, stopWH := context.WithCancel(ctx)
+		whDone := make(chan struct{})
+		go func() {
+			defer close(whDone)
+			if err := whSrv.Serve(whCtx, ln); err != nil {
+				logger.Error("webhook listener failed", "err", err)
+			}
+		}()
+		defer func() {
+			stopWH()
+			<-whDone
+		}()
+	}
+
 	// On shutdown the manager stops dialing at once and its live connection
 	// is closed by the server's peer tracking. cpCtx also ends it if Serve
 	// fails without ctx being cancelled.
@@ -161,4 +229,18 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	logger.Info("ki-agent stopped")
 	return nil
+}
+
+// webhookProjects adapts the projects service to webhooks.Projects. An
+// unknown webhook id surfaces as store.ErrNotFound.
+type webhookProjects struct{ svc *projects.Service }
+
+func (w webhookProjects) ByWebhookID(ctx context.Context, id string) (webhooks.Hook, error) {
+	h, err := w.svc.WebhookHook(ctx, id)
+	if err != nil {
+		return webhooks.Hook{}, err
+	}
+	return webhooks.Hook{
+		Slug: h.Slug, Branch: h.Branch, TagPattern: h.TagPattern, Status: h.Status, Secret: h.Secret,
+	}, nil
 }
