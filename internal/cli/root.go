@@ -35,6 +35,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newRunCmd(&f))
 	cmd.AddCommand(newProjectsCmd(&f))
 	cmd.AddCommand(newStatusCmd(&f))
+	cmd.AddCommand(newEdgeCmd(&f))
 	cmd.AddCommand(newLogsCmd(&f))
 	cmd.AddCommand(newDeployCmd(&f))
 	cmd.AddCommand(newDeploysCmd(&f))

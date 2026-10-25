@@ -33,6 +33,9 @@ type project struct {
 	Commit       string `json:"commit"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+
+	Exposure         []exposure `json:"exposure"`
+	ExposureWarnings []string   `json:"exposure_warnings"`
 }
 
 type trigger struct {
@@ -81,6 +84,8 @@ func newProjectsCmd(f *flags) *cobra.Command {
 		newProjectsUpdateCmd(f),
 		newProjectsDeleteCmd(f),
 		newProjectsEnvCmd(f),
+		newProjectsExposeCmd(f),
+		newProjectsUnexposeCmd(f),
 	)
 	return cmd
 }
@@ -250,6 +255,7 @@ func newProjectGetter(f *flags, use, short, method string) *cobra.Command {
 			}
 			w := cmd.OutOrStdout()
 			printProject(w, &p)
+			printExposure(w, &p)
 			if p.Status == "pending_access" {
 				printDeployKey(w, &p)
 			}
