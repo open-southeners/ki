@@ -29,6 +29,7 @@ const (
 	CodeAlreadyExists        = -32009
 	CodeRepositoryError      = -32010
 	CodeEnrollmentError      = -32011
+	CodeDeployError          = -32012
 )
 
 // ErrClosed is returned by operations on a Peer that has been closed or whose
