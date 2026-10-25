@@ -50,8 +50,8 @@ func (e *IncludeError) Error() string {
 // Relative paths are resolved the way Compose does it when run with
 // `--project-directory root`: in the main compose file against root (not the
 // file's own directory), in an included or extended file against that file's
-// directory (and, for env_file/label_file of a file included with
-// `project_directory`, also against that directory). Compose files themselves
+// directory. An include `project_directory` is only accepted when it is the
+// included file's own directory. Compose files themselves
 // must not be symlinks. composeFile is absolute or relative to root. The
 // error, if any, is an [*IncludeError].
 func CheckIncludes(root, composeFile string) error {
@@ -68,7 +68,7 @@ func CheckIncludes(root, composeFile string) error {
 	if !filepath.IsAbs(file) {
 		file = filepath.Join(realRoot, file)
 	}
-	return s.scan(file, realRoot, nil, 0)
+	return s.scan(file, realRoot, 0)
 }
 
 type scanner struct {
@@ -77,9 +77,8 @@ type scanner struct {
 }
 
 // scan checks one compose file. base is the directory its include and extends
-// paths are relative to; extra lists further directories its env_file and
-// label_file paths may be relative to (include `project_directory`).
-func (s *scanner) scan(file, base string, extra []string, depth int) error {
+// paths, env_file and label_file paths are relative to.
+func (s *scanner) scan(file, base string, depth int) error {
 	if depth > maxIncludeDepth {
 		return &IncludeError{File: file, Reason: "include nesting too deep"}
 	}
@@ -95,7 +94,7 @@ func (s *scanner) scan(file, base string, extra []string, depth int) error {
 	if !within(s.root, real) {
 		return &IncludeError{File: file, Reason: "resolves outside the project"}
 	}
-	seenKey := real + "\x00" + base + "\x00" + strings.Join(extra, "\x00")
+	seenKey := real + "\x00" + base
 	if s.seen[seenKey] {
 		return nil
 	}
@@ -117,13 +116,8 @@ func (s *scanner) scan(file, base string, extra []string, depth int) error {
 		return &IncludeError{File: file, Reason: "top-level object must be a mapping"}
 	}
 	dir := base
-	envBases := append([]string{base}, extra...)
 
-	type child struct {
-		file  string
-		extra []string
-	}
-	var refs []child // compose files to descend into
+	var refs []string // compose files to descend into
 	check := func(p string) (string, error) { return s.resolve(file, dir, "include/extends", p, false) }
 
 	if inc, ok := top["include"]; ok && inc != nil {
@@ -138,30 +132,14 @@ func (s *scanner) scan(file, base string, extra []string, depth int) error {
 				if err != nil {
 					return err
 				}
-				refs = append(refs, child{file: r})
+				refs = append(refs, r)
 			case map[string]any:
-				var pdirs []string // absolute project_directory candidates
-				if pd, ok := v["project_directory"]; ok && pd != nil {
-					paths, err := stringList(file, "include.project_directory", pd)
-					if err != nil {
-						return err
-					}
-					for _, p := range paths {
-						for _, b := range []string{dir, s.root} {
-							r, err := s.resolve(file, b, "include.project_directory", p, false)
-							if err != nil {
-								return err
-							}
-							pdirs = append(pdirs, r)
-						}
-					}
-				}
 				envs, err := stringList(file, "include.env_file", v["env_file"])
 				if err != nil {
 					return err
 				}
 				for _, p := range envs {
-					for _, b := range append([]string{dir, s.root}, pdirs...) {
+					for _, b := range []string{dir, s.root} {
 						if _, err := s.resolve(file, b, "include.env_file", p, true); err != nil {
 							return err
 						}
@@ -171,12 +149,33 @@ func (s *scanner) scan(file, base string, extra []string, depth int) error {
 				if err != nil {
 					return err
 				}
+				var pds []string
+				if pd, ok := v["project_directory"]; ok && pd != nil {
+					if pds, err = stringList(file, "include.project_directory", pd); err != nil {
+						return err
+					}
+				}
 				for _, p := range paths {
 					r, err := check(p)
 					if err != nil {
 						return err
 					}
-					refs = append(refs, child{file: r, extra: pdirs})
+					// Compose would resolve the included file's own references
+					// against project_directory; allowing any other directory
+					// would need a second base per file, so require it to be
+					// the file's directory (the default).
+					for _, pd := range pds {
+						for _, b := range []string{dir, s.root} {
+							d, err := s.resolve(file, b, "include.project_directory", pd, false)
+							if err != nil {
+								return err
+							}
+							if d != filepath.Dir(r) {
+								return &IncludeError{File: file, Path: pd, Reason: "include project_directory must be the included file's directory"}
+							}
+						}
+					}
+					refs = append(refs, r)
 				}
 			default:
 				return &IncludeError{File: file, Reason: "include entry must be a string or a mapping"}
@@ -189,7 +188,7 @@ func (s *scanner) scan(file, base string, extra []string, depth int) error {
 			if !ok {
 				continue
 			}
-			if err := s.diskRefs(file, envBases, name, svc); err != nil {
+			if err := s.diskRefs(file, dir, name, svc); err != nil {
 				return err
 			}
 			ext, ok := svc["extends"].(map[string]any)
@@ -208,11 +207,11 @@ func (s *scanner) scan(file, base string, extra []string, depth int) error {
 			if err != nil {
 				return err
 			}
-			refs = append(refs, child{file: r})
+			refs = append(refs, r)
 		}
 	}
-	for _, c := range refs {
-		if err := s.scan(c.file, filepath.Dir(c.file), c.extra, depth+1); err != nil {
+	for _, r := range refs {
+		if err := s.scan(r, filepath.Dir(r), depth+1); err != nil {
 			return err
 		}
 	}
@@ -263,7 +262,7 @@ func (s *scanner) resolve(file, dir, key, p string, allowAbs bool) (string, erro
 // format} objects) and label_file (string or list). Some Compose versions
 // inline env_file contents even with --no-env-resolution, so the policy alone
 // cannot be relied on to catch an escaping path.
-func (s *scanner) diskRefs(file string, bases []string, name string, svc map[string]any) error {
+func (s *scanner) diskRefs(file, dir, name string, svc map[string]any) error {
 	for _, key := range []string{"env_file", "label_file"} {
 		v, ok := svc[key]
 		if !ok || v == nil {
@@ -288,10 +287,8 @@ func (s *scanner) diskRefs(file string, bases []string, name string, svc map[str
 			default:
 				return &IncludeError{File: file, Reason: what + " entry must be a string or a mapping"}
 			}
-			for _, b := range bases {
-				if _, err := s.resolve(file, b, what, p, true); err != nil {
-					return err
-				}
+			if _, err := s.resolve(file, dir, what, p, true); err != nil {
+				return err
 			}
 		}
 	}

@@ -266,10 +266,14 @@ func TestCheckIncludesBaseDirectories(t *testing.T) {
 			"other/deep/n.yaml": "services: {}\n", "other/deep/e.yaml": "services: {e: {image: x}}\n"}, ""},
 		{"included nested include is not root-relative", "compose.yaml", map[string]string{
 			"compose.yaml": "include: other/inc.yaml\n", "other/inc.yaml": "include: ../../n.yaml\n"}, "../../n.yaml"},
-		{"project_directory sets env_file base ok", "compose.yaml", map[string]string{
-			"compose.yaml": "include:\n  - path: other/inc.yaml\n    project_directory: pd\n", "other/inc.yaml": "services:\n  i: {image: x, env_file: p.env}\n"}, ""},
-		{"project_directory with escaping env_file", "compose.yaml", map[string]string{
-			"compose.yaml": "include:\n  - path: other/inc.yaml\n    project_directory: pd\n", "other/inc.yaml": "services:\n  i: {image: x, env_file: ../../p.env}\n"}, "../../p.env"},
+		{"project_directory equal to included dir ok", "compose.yaml", map[string]string{
+			"compose.yaml": "include:\n  - path: other/inc.yaml\n    project_directory: other\n", "other/inc.yaml": "services:\n  i: {image: x, env_file: p.env}\n"}, ""},
+		{"project_directory other dir rejected", "compose.yaml", map[string]string{
+			"compose.yaml": "include:\n  - path: other/inc.yaml\n    project_directory: pd\n", "other/inc.yaml": "services: {}\n"}, "must be the included file's directory"},
+		{"project_directory root rejected for nested file", "compose.yaml", map[string]string{
+			"compose.yaml": "include:\n  - path: other/inc.yaml\n    project_directory: .\n", "other/inc.yaml": "services: {}\n"}, "must be the included file's directory"},
+		{"project_directory in included file must match its child", "compose.yaml", map[string]string{
+			"compose.yaml": "include: other/inc.yaml\n", "other/inc.yaml": "include:\n  - path: deep/n.yaml\n    project_directory: .\n"}, "must be the included file's directory"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
