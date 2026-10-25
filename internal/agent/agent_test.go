@@ -108,3 +108,9 @@ func TestInfoControlPlane(t *testing.T) {
 		t.Fatalf("control_plane = %v", got)
 	}
 }
+
+func TestCapabilitiesAdvertiseEdge(t *testing.T) {
+	if !slices.Contains(capabilities, "edge") {
+		t.Errorf("capabilities = %v, want edge", capabilities)
+	}
+}

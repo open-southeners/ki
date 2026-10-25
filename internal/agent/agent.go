@@ -58,7 +58,7 @@ func HelloHook(ctx context.Context) func() {
 func SetHelloHook(p *rpc.Peer, fn func()) { p.Set(helloHookKey, fn) }
 
 // capabilities the agent advertises in agent.hello.
-var capabilities = []string{"heartbeat", "containers", "projects", "deploys", "enrollment"}
+var capabilities = []string{"heartbeat", "containers", "projects", "deploys", "edge", "enrollment"}
 
 // Agent holds the state shared by the method handlers.
 type Agent struct {

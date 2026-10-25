@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/controlplane"
 	"github.com/open-southeners/ki-agent/internal/deploys"
+	"github.com/open-southeners/ki-agent/internal/edge"
 	"github.com/open-southeners/ki-agent/internal/enroll"
 	"github.com/open-southeners/ki-agent/internal/enrollment"
 	"github.com/open-southeners/ki-agent/internal/git"
@@ -122,18 +124,32 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return err
 	}
 
+	composeRunner := &compose.Runner{
+		CLI:        cfg.Docker.CLI,
+		DockerHost: cfg.Docker.Host,
+		Home:       filepath.Join(cfg.DataDir, "git", "home"),
+		Logger:     logger,
+	}
+	// The edge routes to the real webhook listener, so the port it targets
+	// follows the effective listen address.
+	webhookListen := effectiveWebhooksListen(cfg, logger)
+	edgeMgr := edge.New(edge.Options{
+		Config: cfg.Edge, DataDir: cfg.DataDir,
+		Compose: composeRunner, Runtime: rt, Exposures: db, Logger: logger,
+	})
+	defer edgeMgr.Close() // leaves the proxy container running, by design
+	projSvc.SetReservedHostnames(edgeMgr.ServerHostnames)
+	projSvc.OnExposureChange(edgeMgr.Trigger)
+	projSvc.OnDeleted(func(context.Context, string) { edgeMgr.Trigger() })
+
 	// The deploy manager is closed (cancelling and recording running deploys)
 	// before the store closes: defers run last-in first-out.
 	deployMgr, err := deploys.New(deploys.Options{
-		Store:    db,
-		Projects: projSvc,
-		Git:      gitClient,
-		Compose: &compose.Runner{
-			CLI:        cfg.Docker.CLI,
-			DockerHost: cfg.Docker.Host,
-			Home:       filepath.Join(cfg.DataDir, "git", "home"),
-			Logger:     logger,
-		},
+		Store:         db,
+		Projects:      projSvc,
+		Git:           gitClient,
+		Compose:       composeRunner,
+		OnFinished:    func(string) { edgeMgr.Trigger() },
 		Runtime:       rt,
 		DataDir:       cfg.DataDir,
 		HealthTimeout: cfg.Deploys.HealthTimeout,
@@ -160,6 +176,11 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	containers.New(rt, logger).Register(router)
 	projects.NewHandlers(projSvc).Register(router)
 	deploys.NewHandlers(deployMgr).Register(router)
+	edgeHandlers := edge.NewHandlers(edgeMgr, filepath.Join(cfg.DataDir, "edge"), logger)
+	edgeHandlers.DomainOwner = func(ctx context.Context, domain string) (string, string, error) {
+		return db.DomainOwner(ctx, domain)
+	}
+	edgeHandlers.Register(router)
 	srv, err := server.New(server.Options{Config: cfg, Router: router, Logger: logger})
 	if err != nil {
 		return err
@@ -180,13 +201,18 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return err
 	}
 
-	if cfg.Webhooks.Enabled() {
-		ln, err := net.Listen("tcp", cfg.Webhooks.Listen)
+	// Started once the listeners are up; reconcile problems never fail the agent.
+	if err := edgeMgr.Start(ctx); err != nil {
+		return err
+	}
+
+	if webhookListen != "" {
+		ln, err := net.Listen("tcp", webhookListen)
 		if err != nil {
 			return fmt.Errorf("webhooks listen: %w", err)
 		}
 		whSrv := &webhooks.Server{
-			Addr:        cfg.Webhooks.Listen,
+			Addr:        webhookListen,
 			TLSCertFile: cfg.Webhooks.TLSCertFile,
 			TLSKeyFile:  cfg.Webhooks.TLSKeyFile,
 			Logger:      logger,
@@ -229,6 +255,39 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	logger.Info("ki-agent stopped")
 	return nil
+}
+
+// effectiveWebhooksListen returns the address the webhook listener binds and
+// aligns cfg.Edge.WebhooksPort with it, so the edge always routes /hooks to
+// the real listener. With the edge enabled and no explicit address the
+// listener binds the loopback port edge.webhooks_port; without either, there
+// is no listener (empty result).
+func effectiveWebhooksListen(cfg *config.Config, logger *slog.Logger) string {
+	if !cfg.Edge.Enabled {
+		return cfg.Webhooks.Listen
+	}
+	if cfg.Webhooks.Listen == "" {
+		return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.Edge.WebhooksPort))
+	}
+	host, portStr, err := net.SplitHostPort(cfg.Webhooks.Listen)
+	if err != nil { // config validation rejects this; keep the listener as is
+		return cfg.Webhooks.Listen
+	}
+	if port, err := strconv.Atoi(portStr); err == nil && port != cfg.Edge.WebhooksPort {
+		logger.Info("edge routes /hooks to the webhooks.listen port instead of edge.webhooks_port",
+			"port", port, "edge_webhooks_port", cfg.Edge.WebhooksPort)
+		cfg.Edge.WebhooksPort = port
+	}
+	if ip := net.ParseIP(host); host != "" && !(ip != nil && (ip.IsLoopback() || ip.IsUnspecified())) {
+		logger.Warn("webhooks.listen is neither loopback nor a wildcard address: /hooks through the edge targets 127.0.0.1 only and will not reach it",
+			"listen", cfg.Webhooks.Listen, "edge_target", "127.0.0.1:"+strconv.Itoa(cfg.Edge.WebhooksPort))
+	}
+	if cfg.Webhooks.TLSEnabled() {
+		logger.Warn("webhooks.tls_* is set: the edge forwards /hooks over plain HTTP and cannot reach a TLS listener; "+
+			"drop the TLS files and let the edge terminate TLS",
+			"listen", cfg.Webhooks.Listen)
+	}
+	return cfg.Webhooks.Listen
 }
 
 // webhookProjects adapts the projects service to webhooks.Projects. An

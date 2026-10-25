@@ -1038,6 +1038,42 @@
       ]
     },
     {
+      "name": "projects.expose",
+      "summary": "Publish a service of a project on one or more domains through the edge proxy.",
+      "description": "Stores a project-side exposure for the service, which overrides any ki.expose.* labels of that service entirely. A domain is routed to at most one (project, service) on the server: if another project already exposes one of the domains the call fails with AlreadyExists and data {domain, project}. The server's own hostnames (edge.domain and hostnames with an installed certificate) are reserved and rejected with InvalidParams. The service is not required to exist yet; projects.get reports a warning in exposure_warnings while it is unverified. Returns the updated project.",
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "slug", "description": "Project slug.", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "service", "description": "Compose service name.", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "port", "description": "Container port the service listens on.", "required": true, "schema": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+        { "name": "domains", "description": "Lowercase DNS names (ASCII or punycode, at least one dot, no wildcards, not IP addresses), 1 to 20.", "required": true, "schema": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string" } } },
+        { "name": "path", "description": "Optional path prefix; must start with /, at most 256 characters, no spaces or '..'.", "schema": { "type": "string" } }
+      ],
+      "result": { "name": "project", "schema": { "$ref": "#/components/schemas/Project" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/NotFound" },
+        { "$ref": "#/components/errors/AlreadyExists" }
+      ]
+    },
+    {
+      "name": "projects.unexpose",
+      "summary": "Remove the project-side exposure of a service.",
+      "description": "Deletes the project-side entry for the service; the ki.expose.* labels of the last successful deploy, if any, apply again. Removing a service without a project-side entry is a no-op. Returns the updated project.",
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "slug", "description": "Project slug.", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "service", "description": "Compose service name.", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "result": { "name": "project", "schema": { "$ref": "#/components/schemas/Project" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/NotFound" }
+      ]
+    },
+    {
       "name": "deploys.trigger",
       "summary": "Queue a deploy of a project.",
       "description": "Checks that the project is ready and that ref is allowed for the project's trigger, records a queued deploy and returns it (status running when it started at once). One deploy runs per project at a time; at most one waits behind it, and a newer trigger supersedes the waiting one. A running deploy is never cancelled by a trigger. Pipeline failures are not errors of this call: they are recorded on the deploy (status failed, error). The source is api, or cli when called over the Unix socket.",
@@ -1283,6 +1319,79 @@
             ]
           }
         }
+      ]
+    },
+    {
+      "name": "edge.status",
+      "summary": "Report the state of the edge proxy.",
+      "description": "Always available: with the edge disabled the result has enabled false and state disabled. The self-signed fingerprint is the SHA-256 of the default certificate served for the bare IP and unknown hosts; operators compare it when they accept that certificate by hand.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/EdgeStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" }
+      ]
+    },
+    {
+      "name": "edge.csr",
+      "summary": "Create a certificate signing request for a server hostname (local socket and control plane only).",
+      "description": "Transport-restricted: other transports are refused with Unauthorized. Generates (or reuses the pending) ECDSA P-256 key for the hostname, kept on the server and never returned, and returns a PEM CSR with that single DNS name. The control plane has it signed (for example by an origin CA) and passes the certificate to edge.certificate.install. A hostname exposed by a project is refused with AlreadyExists.",
+      "x-transports": ["unix", "control-plane"],
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "hostname", "description": "Server hostname (lowercase DNS name).", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "result": {
+        "name": "csr",
+        "schema": {
+          "type": "object",
+          "required": ["hostname", "csr"],
+          "properties": {
+            "hostname": { "type": "string" },
+            "csr": { "type": "string", "description": "PEM-encoded PKCS#10 request." }
+          }
+        }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/AlreadyExists" }
+      ]
+    },
+    {
+      "name": "edge.certificate.install",
+      "summary": "Install the certificate for a server hostname (local socket and control plane only).",
+      "description": "Transport-restricted like edge.csr. The leaf must match the key created by edge.csr, cover the hostname, be valid now and not expire within 24 hours; violations are InvalidParams with a message. The chain is not verified against system roots: an origin CA certificate trusted only by a CDN is accepted. After the install the hostname becomes a server hostname served with this certificate and cannot be exposed by projects. Returns the updated edge status.",
+      "x-transports": ["unix", "control-plane"],
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "hostname", "description": "Server hostname the certificate is for.", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "certificate", "description": "PEM certificate chain, leaf first.", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/EdgeStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/AlreadyExists" }
+      ]
+    },
+    {
+      "name": "edge.certificate.remove",
+      "summary": "Remove the installed certificate and key of a server hostname (local socket and control plane only).",
+      "description": "Transport-restricted like edge.csr. Deletes the certificate and key; the hostname stops being a server hostname. Returns the updated edge status.",
+      "x-transports": ["unix", "control-plane"],
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "hostname", "description": "Server hostname.", "required": true, "schema": { "type": "string", "minLength": 1 } }
+      ],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/EdgeStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/AlreadyExists" }
       ]
     },
     {
@@ -1829,7 +1938,65 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "exposure": {
+            "type": "array",
+            "description": "Effective exposure: project-side entries plus label entries of services without a project-side entry. Absent when nothing is exposed.",
+            "items": { "$ref": "#/components/schemas/Exposure" }
+          },
+          "exposure_warnings": {
+            "type": "array",
+            "description": "Advisory notes about the exposure, for example a service that is not in the deployed model or a label domain that another project owns (so it is not routed). Absent when there are none.",
+            "items": { "type": "string" }
           }
+        }
+      },
+      "Exposure": {
+        "type": "object",
+        "description": "A service published through the edge proxy.",
+        "required": ["service", "port", "domains", "source"],
+        "properties": {
+          "service": { "type": "string" },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "domains": { "type": "array", "items": { "type": "string" } },
+          "path": { "type": "string", "description": "Optional path prefix; absent when the whole host is routed." },
+          "source": { "type": "string", "enum": ["labels", "project"], "description": "labels: ki.expose.* labels of the last successful deploy; project: set with projects.expose, overrides the labels." }
+        }
+      },
+      "EdgeStatus": {
+        "type": "object",
+        "description": "State of the edge proxy.",
+        "required": ["enabled", "state", "image", "http_port", "https_port", "server_hostnames", "self_signed", "certificates", "routes"],
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "state": { "type": "string", "enum": ["disabled", "starting", "running", "error"] },
+          "last_error": { "type": "string", "description": "Why the edge is in state error (for example a port in use or a failed image pull); the agent keeps retrying. Absent otherwise." },
+          "image": { "type": "string" },
+          "http_port": { "type": "integer" },
+          "https_port": { "type": "integer" },
+          "server_hostnames": { "type": "array", "description": "Hostnames the server itself answers on (edge.domain and hostnames with an installed certificate). Projects cannot expose these.", "items": { "type": "string" } },
+          "self_signed": {
+            "type": "object",
+            "description": "The persistent self-signed default certificate served for the bare IP and unknown hosts.",
+            "required": ["fingerprint_sha256", "not_after"],
+            "properties": {
+              "fingerprint_sha256": { "type": "string", "description": "SHA-256 of the certificate (DER) as colon-separated uppercase hex pairs." },
+              "not_after": { "type": "string", "format": "date-time" }
+            }
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["hostname", "source"],
+              "properties": {
+                "hostname": { "type": "string" },
+                "source": { "type": "string", "enum": ["acme", "installed"] },
+                "not_after": { "type": "string", "format": "date-time", "description": "Known for installed certificates." }
+              }
+            }
+          },
+          "routes": { "type": "integer", "description": "Number of project routes currently served." }
         }
       },
       "PruneReport": {
@@ -1987,6 +2154,7 @@
               "up_failed",
               "health_failed",
               "runtime_unavailable",
+              "domain_conflict",
               "internal"
             ]
           },
@@ -2104,7 +2272,7 @@
       "NotFound": { "code": -32006, "message": "Container not found", "data": "Also returned for containers that exist but are not managed by ki. The projects.* methods return it with the message \"project not found\"." },
       "PolicyViolation": { "code": -32007, "message": "Policy violation", "data": "Object {violations: [{service, rule, detail}]}; see the PolicyViolations schema." },
       "RuntimeUnavailable": { "code": -32008, "message": "Container runtime unavailable" },
-      "AlreadyExists": { "code": -32009, "message": "Project already exists" },
+      "AlreadyExists": { "code": -32009, "message": "Project already exists", "data": "Only for domain conflicts (projects.expose, edge.csr, edge.certificate.install): object {domain, project} (edge methods add service) naming the domain and the project that exposes it; absent for a duplicate project." },
       "RepositoryError": { "code": -32010, "message": "Repository error", "data": "Object {reason, detail}; reason is one of invalid_url, unreachable, auth_failed, not_found, ref_not_found, compose_not_found, failed." },
       "EnrollmentError": { "code": -32011, "message": "Enrollment error", "data": "Object {reason, detail}; reason is one of unreachable, invalid_response, denied, expired, failed." },
       "DeployError": { "code": -32012, "message": "Deploy error", "data": "Object {reason, detail}; reason is one of project_not_ready, ref_not_allowed, ref_not_found; see the DeployError schema." }
