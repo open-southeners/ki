@@ -240,3 +240,98 @@ func TestControlPlaneValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestWebhooksDeploysDefaults(t *testing.T) {
+	d := Default()
+	if d.Webhooks.Enabled() || d.Webhooks.MaxBodyBytes != 5242880 ||
+		d.Deploys.HealthTimeout != 5*time.Minute || d.Deploys.Keep != 50 ||
+		d.Deploys.LogMaxBytes != 1048576 || d.Docker.CLI != "docker" {
+		t.Fatalf("defaults = %+v %+v %+v", d.Webhooks, d.Deploys, d.Docker)
+	}
+}
+
+func TestWebhooksDeploysEnv(t *testing.T) {
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_DOCKER_CLI":              "/usr/local/bin/docker",
+		"KI_WEBHOOKS_LISTEN":         "127.0.0.1:8090",
+		"KI_WEBHOOKS_MAX_BODY_BYTES": "1024",
+		"KI_DEPLOYS_HEALTH_TIMEOUT":  "90s",
+		"KI_DEPLOYS_KEEP":            "7",
+		"KI_DEPLOYS_LOG_MAX_BYTES":   "2048",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Docker.CLI != "/usr/local/bin/docker" || cfg.Webhooks.Listen != "127.0.0.1:8090" ||
+		cfg.Webhooks.MaxBodyBytes != 1024 || cfg.Deploys.HealthTimeout != 90*time.Second ||
+		cfg.Deploys.Keep != 7 || cfg.Deploys.LogMaxBytes != 2048 {
+		t.Fatalf("cfg = %+v %+v %+v", cfg.Docker, cfg.Webhooks, cfg.Deploys)
+	}
+	for _, env := range []map[string]string{
+		{"KI_DEPLOYS_KEEP": "many"},
+		{"KI_DEPLOYS_HEALTH_TIMEOUT": "soon"},
+		{"KI_WEBHOOKS_MAX_BODY_BYTES": "1.5"},
+	} {
+		if _, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(env)); err == nil {
+			t.Fatalf("env %v: want error", env)
+		}
+	}
+}
+
+func TestWebhooksDeploysValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		mod  func(*Config)
+		want string // empty = valid
+	}{
+		{"disabled ignores listen rules", func(c *Config) { c.Webhooks.MaxBodyBytes = 0 }, ""},
+		{"ok loopback plain", func(c *Config) { c.Webhooks.Listen = "127.0.0.1:8090" }, ""},
+		{"ok localhost plain", func(c *Config) { c.Webhooks.Listen = "localhost:8090" }, ""},
+		{"ok v6 loopback plain", func(c *Config) { c.Webhooks.Listen = "[::1]:8090" }, ""},
+		{"ok public with tls", func(c *Config) {
+			c.Webhooks.Listen = ":8443"
+			c.Webhooks.TLSCertFile, c.Webhooks.TLSKeyFile = "c.pem", "k.pem"
+		}, ""},
+		{"no port", func(c *Config) { c.Webhooks.Listen = "127.0.0.1" }, "host:port"},
+		{"bad port", func(c *Config) { c.Webhooks.Listen = "127.0.0.1:99999" }, "port"},
+		{"public without tls", func(c *Config) { c.Webhooks.Listen = "0.0.0.0:8090" }, "tls_cert_file"},
+		{"empty host without tls", func(c *Config) { c.Webhooks.Listen = ":8090" }, "tls_cert_file"},
+		{"cert without key", func(c *Config) {
+			c.Webhooks.Listen = "127.0.0.1:8090"
+			c.Webhooks.TLSCertFile = "c.pem"
+		}, "together"},
+		{"zero body", func(c *Config) { c.Webhooks.Listen = "127.0.0.1:8090"; c.Webhooks.MaxBodyBytes = 0 }, "max_body_bytes"},
+		{"zero health timeout", func(c *Config) { c.Deploys.HealthTimeout = 0 }, "health_timeout"},
+		{"zero keep", func(c *Config) { c.Deploys.Keep = 0 }, "deploys.keep"},
+		{"zero log max", func(c *Config) { c.Deploys.LogMaxBytes = 0 }, "log_max_bytes"},
+		{"empty cli", func(c *Config) { c.Docker.CLI = "" }, "docker.cli"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Default()
+			tt.mod(&c)
+			err := c.Validate()
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestExampleConfig keeps the shipped example in sync with the config struct:
+// it must parse strictly, validate, and equal the defaults it documents.
+func TestExampleConfig(t *testing.T) {
+	cfg, err := LoadWithEnv(filepath.Join("..", "..", "packaging", "config.example.yaml"), noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *cfg != Default() {
+		t.Fatalf("example config differs from defaults:\n got %+v\nwant %+v", *cfg, Default())
+	}
+}

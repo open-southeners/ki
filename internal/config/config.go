@@ -196,6 +196,58 @@ type Docker struct {
 	// Host is the engine endpoint (unix:// or tcp://). The agent starts even
 	// when the engine is down; container methods fail until it is reachable.
 	Host string `yaml:"host"`
+	// CLI is the docker executable (with the compose v2 plugin) used for
+	// deploys; a bare name is looked up in PATH.
+	CLI string `yaml:"cli"`
+}
+
+// Webhooks configures the optional inbound webhook listener that triggers
+// deploys.
+type Webhooks struct {
+	// Listen is the host:port to listen on; empty disables the listener.
+	Listen string `yaml:"listen"`
+	// TLSCertFile and TLSKeyFile enable HTTPS; both are required when Listen
+	// is not a loopback address.
+	TLSCertFile string `yaml:"tls_cert_file"`
+	TLSKeyFile  string `yaml:"tls_key_file"`
+	// MaxBodyBytes caps the size of an accepted webhook request body.
+	MaxBodyBytes int64 `yaml:"max_body_bytes"`
+}
+
+// Enabled reports whether the webhook listener is configured.
+func (w Webhooks) Enabled() bool { return w.Listen != "" }
+
+// TLSEnabled reports whether the listener serves HTTPS.
+func (w Webhooks) TLSEnabled() bool { return w.TLSCertFile != "" && w.TLSKeyFile != "" }
+
+func (w Webhooks) validate() error {
+	host, port, err := net.SplitHostPort(w.Listen)
+	if err != nil || port == "" {
+		return fmt.Errorf("webhooks.listen %q must be host:port", w.Listen)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("webhooks.listen %q has an invalid port", w.Listen)
+	}
+	if (w.TLSCertFile == "") != (w.TLSKeyFile == "") {
+		return errors.New("webhooks.tls_cert_file and webhooks.tls_key_file must be set together")
+	}
+	if !w.TLSEnabled() && !IsLoopbackHost(host) {
+		return fmt.Errorf("webhooks.listen %q is not loopback: set webhooks.tls_cert_file and webhooks.tls_key_file", w.Listen)
+	}
+	if w.MaxBodyBytes <= 0 {
+		return errors.New("webhooks.max_body_bytes must be positive")
+	}
+	return nil
+}
+
+// Deploys configures deploy execution and history retention.
+type Deploys struct {
+	// HealthTimeout is how long a deploy waits for services to become healthy.
+	HealthTimeout time.Duration `yaml:"health_timeout"`
+	// Keep is the number of deploys retained per project.
+	Keep int `yaml:"keep"`
+	// LogMaxBytes caps the stored log size of a single deploy.
+	LogMaxBytes int64 `yaml:"log_max_bytes"`
 }
 
 // Config is the full agent configuration.
@@ -205,6 +257,8 @@ type Config struct {
 	Socket    Socket    `yaml:"socket"`
 	WebSocket WebSocket `yaml:"websocket"`
 	Docker    Docker    `yaml:"docker"`
+	Webhooks  Webhooks  `yaml:"webhooks"`
+	Deploys   Deploys   `yaml:"deploys"`
 
 	ControlPlane ControlPlane `yaml:"control_plane"`
 }
@@ -215,7 +269,9 @@ func Default() Config {
 		DataDir:  "/var/lib/ki-agent",
 		LogLevel: "info",
 		Socket:   Socket{Path: "/run/ki-agent/ki.sock", Mode: 0o660},
-		Docker:   Docker{Host: "unix:///var/run/docker.sock"},
+		Docker:   Docker{Host: "unix:///var/run/docker.sock", CLI: "docker"},
+		Webhooks: Webhooks{MaxBodyBytes: 5 << 20},
+		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20},
 		WebSocket: WebSocket{
 			Path:              "/rpc",
 			HeartbeatInterval: 15 * time.Second,
@@ -279,6 +335,16 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 		}
 		return nil
 	}
+	num := func(key string, dst *int64) error {
+		if v, ok := lookup(key); ok {
+			n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			*dst = n
+		}
+		return nil
+	}
 
 	str("KI_DATA_DIR", &cfg.DataDir)
 	str("KI_LOG_LEVEL", &cfg.LogLevel)
@@ -291,6 +357,24 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 		cfg.Socket.Mode = m
 	}
 	str("KI_DOCKER_HOST", &cfg.Docker.Host)
+	str("KI_DOCKER_CLI", &cfg.Docker.CLI)
+	str("KI_WEBHOOKS_LISTEN", &cfg.Webhooks.Listen)
+	str("KI_WEBHOOKS_TLS_CERT_FILE", &cfg.Webhooks.TLSCertFile)
+	str("KI_WEBHOOKS_TLS_KEY_FILE", &cfg.Webhooks.TLSKeyFile)
+	if err := num("KI_WEBHOOKS_MAX_BODY_BYTES", &cfg.Webhooks.MaxBodyBytes); err != nil {
+		return err
+	}
+	if err := dur("KI_DEPLOYS_HEALTH_TIMEOUT", &cfg.Deploys.HealthTimeout); err != nil {
+		return err
+	}
+	keep := int64(cfg.Deploys.Keep)
+	if err := num("KI_DEPLOYS_KEEP", &keep); err != nil {
+		return err
+	}
+	cfg.Deploys.Keep = int(keep)
+	if err := num("KI_DEPLOYS_LOG_MAX_BYTES", &cfg.Deploys.LogMaxBytes); err != nil {
+		return err
+	}
 	str("KI_WEBSOCKET_LISTEN", &cfg.WebSocket.Listen)
 	str("KI_WEBSOCKET_PATH", &cfg.WebSocket.Path)
 	str("KI_WEBSOCKET_TOKEN_FILE", &cfg.WebSocket.TokenFile)
@@ -331,6 +415,23 @@ func (c *Config) Validate() error {
 	}
 	if c.Docker.Host == "" {
 		return errors.New("docker.host must not be empty")
+	}
+	if c.Docker.CLI == "" {
+		return errors.New("docker.cli must not be empty")
+	}
+	if c.Deploys.HealthTimeout <= 0 {
+		return errors.New("deploys.health_timeout must be positive")
+	}
+	if c.Deploys.Keep <= 0 {
+		return errors.New("deploys.keep must be positive")
+	}
+	if c.Deploys.LogMaxBytes <= 0 {
+		return errors.New("deploys.log_max_bytes must be positive")
+	}
+	if c.Webhooks.Enabled() {
+		if err := c.Webhooks.validate(); err != nil {
+			return err
+		}
 	}
 	if c.ControlPlane.Enabled() {
 		if err := c.ControlPlane.validate(); err != nil {
