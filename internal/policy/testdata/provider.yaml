@@ -1,0 +1,6 @@
+name: t
+services:
+  a:
+    provider:
+      type: model
+      options: {model: x}

@@ -93,13 +93,15 @@ type rawService struct {
 			} `json:"reservations"`
 		} `json:"resources"`
 	} `json:"deploy"`
-	DeviceCgroupRules []string    `json:"device_cgroup_rules"`
-	SecurityOpt       []string    `json:"security_opt"`
-	VolumesFrom       []string    `json:"volumes_from"`
-	Sysctls           flexKV      `json:"sysctls"`
-	Volumes           []rawMount  `json:"volumes"`
-	Build             *rawBuild   `json:"build"`
-	EnvFile           rawEnvFiles `json:"env_file"`
+	DeviceCgroupRules []string        `json:"device_cgroup_rules"`
+	SecurityOpt       []string        `json:"security_opt"`
+	VolumesFrom       []string        `json:"volumes_from"`
+	Sysctls           flexKV          `json:"sysctls"`
+	Volumes           []rawMount      `json:"volumes"`
+	Build             *rawBuild       `json:"build"`
+	EnvFile           rawEnvFiles     `json:"env_file"`
+	Runtime           string          `json:"runtime"`
+	Provider          json.RawMessage `json:"provider"`
 }
 
 func (r *rawService) toService(name string) *Service {
@@ -109,6 +111,10 @@ func (r *rawService) toService(name string) *Service {
 		Cgroup: r.Cgroup, CgroupParent: r.CgroupParent, CapAdd: r.CapAdd,
 		DeviceCgroupRules: r.DeviceCgroupRules, SecurityOpt: r.SecurityOpt,
 		VolumesFrom: r.VolumesFrom, Sysctls: r.Sysctls.m, EnvFiles: r.EnvFile.paths,
+		Runtime: r.Runtime,
+		// Any non-null value counts, even an empty object: the key alone
+		// turns the service into a provider.
+		Provider: len(r.Provider) > 0 && !bytes.Equal(bytes.TrimSpace(r.Provider), []byte("null")),
 	}
 	s.Gpus = int(r.Gpus)
 	if r.Deploy != nil && r.Deploy.Resources != nil && r.Deploy.Resources.Reservations != nil {

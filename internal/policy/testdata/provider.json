@@ -1,0 +1,17 @@
+{
+  "name": "t",
+  "services": {
+    "a": {
+      "command": null,
+      "entrypoint": null,
+      "provider": {
+        "type": "model",
+        "options": {
+          "model": [
+            "x"
+          ]
+        }
+      }
+    }
+  }
+}

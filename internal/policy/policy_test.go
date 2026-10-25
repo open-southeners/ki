@@ -78,6 +78,35 @@ func TestRuleFixtures(t *testing.T) {
 	}
 }
 
+func TestRuntimeAndProviderRules(t *testing.T) {
+	root := t.TempDir()
+	tests := []struct {
+		name    string
+		service string
+		want    []string
+	}{
+		{"runtime empty", `{}`, nil},
+		{"runtime runc", `{"runtime":"runc"}`, nil},
+		{"runtime runc padded", `{"runtime":" runc "}`, nil},
+		{"runtime other", `{"runtime":"nvidia"}`, []string{RuleRuntime}},
+		{"runtime case differs", `{"runtime":"RUNC"}`, []string{RuleRuntime}},
+		{"provider object", `{"provider":{"type":"model"}}`, []string{RuleProvider}},
+		{"provider empty object", `{"provider":{}}`, []string{RuleProvider}},
+		{"provider null", `{"provider":null}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := ParseCompose([]byte(`{"name":"t","services":{"a":` + tt.service + `}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rulesOf(Check(root, p, Options{})); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("rules = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDockerSocketFixtureAlsoInsideRoot(t *testing.T) {
 	// The socket rule fires even though ./run/docker.sock is inside the root.
 	p, root := loadFixture(t, "docker_socket")

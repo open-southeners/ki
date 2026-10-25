@@ -130,6 +130,12 @@ func (c *checker) service(name string, s *Service) {
 	for _, v := range s.VolumesFrom {
 		c.add(name, RuleVolumesFrom, fmt.Sprintf("volumes_from %q is not allowed", v))
 	}
+	if s.Provider {
+		c.add(name, RuleProvider, "provider services are not allowed")
+	}
+	if rt := strings.TrimSpace(s.Runtime); rt != "" && rt != "runc" {
+		c.add(name, RuleRuntime, fmt.Sprintf("runtime %q is not allowed", s.Runtime))
+	}
 	for _, k := range sortedKeys(s.Sysctls) {
 		if !strings.HasPrefix(k, "net.") {
 			c.add(name, RuleSysctls, fmt.Sprintf("sysctl %q is not allowed (only net.* is)", k))

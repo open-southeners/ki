@@ -51,6 +51,8 @@ type Service struct {
 	Volumes           []Mount
 	Build             *Build
 	EnvFiles          []string
+	Runtime           string
+	Provider          bool // the service has a `provider` key
 }
 
 // Mount is one entry of a service's volumes in long syntax. Short-syntax
@@ -182,6 +184,12 @@ const (
 	// RuleSysctls rejects sysctls outside the namespaced `net.*` family;
 	// everything else is host-global or dangerous.
 	RuleSysctls = "sysctls"
+	// RuleProvider rejects services with a `provider` key: they are not
+	// containers but host-side Compose plugins run by the Compose CLI.
+	RuleProvider = "provider"
+	// RuleRuntime rejects any `runtime` other than empty or runc: custom OCI
+	// runtimes can run outside the container sandbox.
+	RuleRuntime = "runtime"
 	// RuleProjectRoot is reported when the project root itself cannot be
 	// resolved, in which case no containment check can be trusted.
 	RuleProjectRoot = "project_root"
@@ -196,5 +204,5 @@ var Rules = []string{
 	RuleCgroup, RuleCapAdd, RuleDevices, RuleDeviceCgroupRules, RuleSecurityOpt,
 	RuleCgroupParent, RuleVolumesFrom, RuleBindMount, RuleDockerSocket,
 	RuleVolumeDriverOpts, RuleExternalVolume, RuleBuildSSH, RuleBuildContext, RuleEnvFile, RuleConfigFile,
-	RuleSecretFile, RuleSysctls, RuleProjectRoot, RuleUnparseable,
+	RuleSecretFile, RuleSysctls, RuleProvider, RuleRuntime, RuleProjectRoot, RuleUnparseable,
 }
