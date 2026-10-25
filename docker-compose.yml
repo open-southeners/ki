@@ -7,11 +7,16 @@ services:
       KI_DATA_DIR: /var/lib/ki-agent
       KI_SOCKET_PATH: /run/ki-agent/ki.sock
       KI_LOG_LEVEL: debug
+      KI_DOCKER_HOST: tcp://dind:2375
     volumes:
       - ki-agent-data:/var/lib/ki-agent
       - ki-agent-run:/run/ki-agent
+    depends_on:
+      dind:
+        condition: service_healthy
     networks:
       - devmesh
+      - testnet
 
   # Docker-in-Docker: the only engine tests ever talk to, so the host's Docker
   # daemon is never touched. Private network; it does not need devmesh.
@@ -32,7 +37,9 @@ services:
   # Runs the full suite (including the Docker integration tests) against dind:
   #   docker compose run --rm test
   test:
-    image: golang:1.26.2-bookworm
+    build:
+      context: .
+      dockerfile: packaging/test/Dockerfile.runner
     profiles: ["test"]  # not started by a bare `docker compose up`
     working_dir: /src
     command: ["go", "test", "-race", "-count=1", "./..."]

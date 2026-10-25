@@ -16,5 +16,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/ki-agent /usr/local/bin/ki-agent
+# Docker CLI and Compose plugin: deploys run `docker compose` against the
+# engine in docker.host. Both are static binaries. The plugin must be new
+# enough for `config --no-env-resolution` to leave env_file entries unresolved
+# (2.40.3 inlines the files into the model, bypassing the policy): keep v5+.
+COPY --from=docker:28-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker/compose-bin:v5.1.0 /docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 ENTRYPOINT ["/usr/local/bin/ki-agent"]
 CMD ["run"]
