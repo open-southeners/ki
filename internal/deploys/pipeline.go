@@ -164,6 +164,10 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 			data:   string(data),
 		}
 	}
+	exposures, se := m.exposures(j, slug, model)
+	if se != nil {
+		return se
+	}
 	labelled, err := compose.Label(model, slug)
 	if err != nil {
 		return fail(ReasonComposeInvalid, "%v", err)
@@ -203,7 +207,79 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 		m.log.Error("deploy record commit", "deploy", j.d.ID, "err", err)
 		return fail(ReasonInternal, "cannot record the deployed commit")
 	}
+	// The domains were free before up; another project may have taken one
+	// since. The deploy itself succeeded, so this is only a warning.
+	if err := m.opts.Store.ReplaceLabelExposures(ctx, slug, exposures); err != nil {
+		var dc *store.DomainConflictError
+		if errors.As(err, &dc) {
+			m.agent(j, "warning: exposure not updated: domain %s is already exposed by %s/%s", dc.Domain, dc.Project, dc.Service)
+		} else {
+			m.log.Error("deploy store exposures", "deploy", j.d.ID, "err", err)
+			m.agent(j, "warning: exposure not updated: %v", err)
+		}
+	}
 	return nil
+}
+
+// exposures reads and validates the ki.expose.* labels of the model and checks
+// that their domains are not routed to another project (or twice within this
+// model). Services the project has overridden through projects.expose are
+// skipped: their label domains are not registered.
+func (m *Manager) exposures(j *job, slug string, model []byte) ([]store.Exposure, *stepError) {
+	ctx := j.ctx
+	labels, err := compose.Exposures(model)
+	if err != nil {
+		return nil, fail(ReasonComposeInvalid, "%v", err)
+	}
+	out := make([]store.Exposure, 0, len(labels))
+	for _, l := range labels {
+		domains, err := m.opts.Projects.ValidateExposure(l.Service, l.Port, l.Domains, l.Path)
+		if err != nil {
+			return nil, fail(ReasonComposeInvalid, "service %q: %v", l.Service, err)
+		}
+		out = append(out, store.Exposure{Service: l.Service, Port: l.Port, Domains: domains, Path: l.Path})
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	m.agent(j, "checking %d exposed service(s)", len(out))
+	effective, err := m.opts.Store.ListExposures(ctx, slug)
+	if err != nil {
+		m.log.Error("deploy list exposures", "deploy", j.d.ID, "err", err)
+		return nil, fail(ReasonInternal, "cannot read the project exposure")
+	}
+	overridden := map[string]bool{}
+	for _, e := range effective {
+		if e.Source == store.ExposureSourceProject {
+			overridden[e.Service] = true
+		}
+	}
+	claimed := map[string]string{} // domain -> service of this model
+	for _, e := range out {
+		if overridden[e.Service] {
+			continue
+		}
+		for _, d := range e.Domains {
+			if other, ok := claimed[d]; ok && other != e.Service {
+				return nil, fail(ReasonDomainConflict, "domain %s is used by services %s and %s of this project", d, other, e.Service)
+			}
+			claimed[d] = e.Service
+			owner, svc, err := m.opts.Store.DomainOwner(ctx, d)
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+			case err != nil:
+				m.log.Error("deploy domain owner", "deploy", j.d.ID, "err", err)
+				return nil, fail(ReasonInternal, "cannot check domain %s", d)
+			case owner != slug:
+				return nil, fail(ReasonDomainConflict, "domain %s is already exposed by project %s", d, owner)
+			case svc != e.Service && overridden[svc]:
+				// Label entries of this project are replaced by this deploy, so
+				// only a project-side entry of another service holds a domain.
+				return nil, fail(ReasonDomainConflict, "domain %s is already exposed by service %s of this project", d, svc)
+			}
+		}
+	}
+	return out, nil
 }
 
 func shortSHA(s string) string {

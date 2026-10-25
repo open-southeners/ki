@@ -34,6 +34,7 @@ const (
 	ReasonComposeNotFound    = "compose_not_found"
 	ReasonComposeInvalid     = "compose_invalid"
 	ReasonPolicyViolation    = "policy_violation"
+	ReasonDomainConflict     = "domain_conflict"
 	ReasonBuildFailed        = "build_failed"
 	ReasonUpFailed           = "up_failed"
 	ReasonHealthFailed       = "health_failed"

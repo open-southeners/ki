@@ -63,7 +63,11 @@ type Options struct {
 	LogMaxBytes int
 	// PollInterval is the health check period (default 2s).
 	PollInterval time.Duration
-	Logger       *slog.Logger
+	// OnFinished, if set, runs after every deploy of a project finished (any
+	// status), once its record is stored; the edge uses it to re-read container
+	// addresses. It runs on the project's worker and must not block.
+	OnFinished func(slug string)
+	Logger     *slog.Logger
 }
 
 // TriggerRequest asks for a deploy of Ref (empty: the trigger's default),
@@ -342,6 +346,9 @@ func (m *Manager) execute(j *job) {
 	}
 	m.finalize(j, status, se)
 	j.cancel()
+	if m.opts.OnFinished != nil {
+		m.opts.OnFinished(j.d.Project)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), finalWriteTimeout)
 	defer cancel()
 	if _, err := m.opts.Store.PruneDeploys(ctx, j.d.Project, m.opts.Keep); err != nil && !errors.Is(err, store.ErrNotFound) {
