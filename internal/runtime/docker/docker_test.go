@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -115,7 +116,7 @@ func (f *fakeEngine) serve(w http.ResponseWriter, r *http.Request) {
 			},
 			"Config":          map[string]any{"Image": "nginx", "Labels": lb, "Tty": f.tty},
 			"Mounts":          []map[string]any{{"Type": "bind", "Source": "/srv/data", "Destination": "/data", "RW": false}},
-			"NetworkSettings": map[string]any{"Networks": map[string]any{"zeta": map[string]any{}, "alpha": map[string]any{}}},
+			"NetworkSettings": map[string]any{"Networks": map[string]any{"zeta": map[string]any{"IPAddress": "172.20.0.5"}, "alpha": map[string]any{"IPAddress": ""}}},
 		})
 	case strings.HasSuffix(path, "/logs"):
 		w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
@@ -197,6 +198,9 @@ func TestInspect(t *testing.T) {
 	}
 	if len(det.Networks) != 2 || det.Networks[0] != "alpha" {
 		t.Errorf("networks = %v", det.Networks)
+	}
+	if want := map[string]string{"zeta": "172.20.0.5"}; !reflect.DeepEqual(det.IPs, want) {
+		t.Errorf("ips = %v, want %v", det.IPs, want)
 	}
 }
 

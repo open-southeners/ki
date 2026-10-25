@@ -154,8 +154,14 @@ func (d *Docker) Inspect(ctx context.Context, id string) (runtime.ContainerDetai
 		})
 	}
 	if c.NetworkSettings != nil {
-		for name := range c.NetworkSettings.Networks {
+		for name, ep := range c.NetworkSettings.Networks {
 			det.Networks = append(det.Networks, name)
+			if ep != nil && ep.IPAddress.Is4() {
+				if det.IPs == nil {
+					det.IPs = make(map[string]string)
+				}
+				det.IPs[name] = ep.IPAddress.String()
+			}
 		}
 		slices.Sort(det.Networks)
 	}

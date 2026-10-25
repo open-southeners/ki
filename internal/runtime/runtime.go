@@ -71,6 +71,9 @@ type ContainerDetail struct {
 	Health   string   `json:"health,omitempty"`
 	Mounts   []Mount  `json:"mounts,omitempty"`
 	Networks []string `json:"networks,omitempty"`
+	// IPs maps network name to the container's IPv4 address on it; networks
+	// without an IPv4 address are absent.
+	IPs map[string]string `json:"ips,omitempty"`
 }
 
 // LogOptions selects which log lines Logs delivers.
