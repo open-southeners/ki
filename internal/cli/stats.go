@@ -281,6 +281,9 @@ func watchStats(ctx context.Context, c *client.Client, out io.Writer, o statsOpt
 				return true
 			})
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil // interrupted while subscribing
+			}
 			return explainError(err)
 		}
 		subs = append(subs, s)
@@ -309,6 +312,9 @@ func watchStats(ctx context.Context, c *client.Client, out io.Writer, o statsOpt
 		})
 	if err != nil {
 		closeAll()
+		if ctx.Err() != nil {
+			return nil // interrupted while subscribing
+		}
 		return explainError(err)
 	}
 	subs = append(subs, s)

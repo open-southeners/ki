@@ -166,6 +166,23 @@ func TestStatsWatch(t *testing.T) {
 	if p := rec.last(t, "containers.stats.subscribe"); p["interval_ms"] != float64(1500) {
 		t.Errorf("containers params = %v", p)
 	}
+}
+
+func TestStatsWatchUnsubscribes(t *testing.T) {
+	rec := &calls{}
+	sock := startAgent(t, statsStubs(rec, ""))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := startCLI(ctx, sock, "stats", "--watch", "--json")
+	// Both updates delivered means both subscriptions are registered client-side.
+	waitFor(t, "both updates", func() bool {
+		o := r.out.String()
+		return strings.Contains(o, `{"sample":`) && strings.Contains(o, `{"available":true`)
+	})
+	cancel()
+	if err := <-r.done; err != nil {
+		t.Fatal(err)
+	}
 	if rec.count("host.unsubscribe") != 1 || rec.count("containers.stats.unsubscribe") != 1 {
 		t.Error("expected both unsubscribe calls")
 	}
