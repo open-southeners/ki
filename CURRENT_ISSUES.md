@@ -342,3 +342,30 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   M4b.
 - **Fix:** remove the subscription before sending the final `eof` update, or poll until the
   unsubscribe reports `-32004`.
+
+## Service actions are not serialised against a running deploy (M5b)
+
+- **Where:** `internal/projects/services.go` (`StartService`, `StopService`, `RestartService`).
+- **What:** the actions act on the containers that exist at that moment and do not take the
+  per-project deploy lock, so a restart or stop during a deploy can race with `compose up` (for
+  example a container stopped just before the deploy recreates it, or a restart of a container
+  being replaced).
+- **Fix:** refuse (or queue) service actions while a deploy of the project is running, via the
+  deploys manager's per-project state.
+
+## Web stats view matches container ids by prefix (M5b)
+
+- **Where:** `web/src/components/ops/ServicesTab.tsx` (stats lookup by container id).
+- **What:** `containers.stats` samples and `projects.services` containers may carry full or short
+  ids, so the services table matches them with `startsWith` in both directions. Two ids sharing a
+  prefix could in theory be mixed up.
+- **Fix:** have both methods return the same id form (full 64-digit id) and compare for equality.
+
+## Two table component sets in the web app (M5b)
+
+- **Where:** `web/src/components/ui/table.tsx` (operations pages) and
+  `web/src/components/admin/table.tsx` (admin pages).
+- **What:** the operations and admin pages were written in parallel and each added its own table
+  primitives with slightly different styling.
+- **Fix:** keep the `ui/` shadcn one and port the admin pages to it.
+
