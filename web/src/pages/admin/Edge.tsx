@@ -23,7 +23,8 @@ import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { useApi } from "@/lib/rpc-context";
-import type { EdgeStatus } from "@/lib/types";
+import { isWildcardName } from "@/components/ops/logic";
+import type { EdgeCertificate, EdgeStatus } from "@/lib/types";
 
 const KEY = ["admin", "edge"] as const;
 
@@ -44,7 +45,7 @@ export default function Edge() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: KEY, queryFn: () => api.edge.status(), refetchInterval: 15_000 });
   const [installing, setInstalling] = React.useState<string | null | false>(false);
-  const [removing, setRemoving] = React.useState<string | null>(null);
+  const [removing, setRemoving] = React.useState<EdgeCertificate | null>(null);
   const set = (s: EdgeStatus) => qc.setQueryData(KEY, s);
 
   return (
@@ -71,15 +72,31 @@ export default function Edge() {
               </Alert>
             )}
 
+            {s.mode === "behind" && (
+              <Alert className="mb-6">
+                <div>
+                  <AlertTitle>Behind another web server</AlertTitle>
+                  <AlertDescription>
+                    The edge listens on loopback over plain HTTP only. The front web server owns ports 80/443 and TLS,
+                    so no ACME certificates are requested here. Print the server blocks to add with{" "}
+                    <Mono>ki-agent edge proxy-config</Mono>.
+                  </AlertDescription>
+                </div>
+              </Alert>
+            )}
+
             <Section title="Status">
               <dl className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Fact label="State">
                   <Badge variant={STATE_VARIANT[s.state]}>{s.state}</Badge>
                   {!s.enabled && <span className="ml-2 text-muted-foreground">edge is turned off</span>}
                 </Fact>
-                <Fact label="Ports">
+                <Fact label="Mode">
+                  <Badge variant={s.mode === "behind" ? "warning" : "outline"}>{s.mode ?? "front"}</Badge>
+                </Fact>
+                <Fact label={s.mode === "behind" ? "Listen" : "Ports"}>
                   <Mono>
-                    http {s.http_port} · https {s.https_port}
+                    {s.mode === "behind" ? (s.listen ?? "–") : `http ${s.http_port} · https ${s.https_port}`}
                   </Mono>
                 </Fact>
                 <Fact label="Routes">
@@ -117,37 +134,59 @@ export default function Edge() {
               title="Certificates"
               description="Hostnames with a certificate of their own. Others are served with the self-signed one."
             >
+              <p className="mb-3 text-sm text-muted-foreground">
+                To use your own certificate (including a wildcard), import it on the server with{" "}
+                <Mono>ki-agent edge certificate import --cert … --key …</Mono>. Private keys never go through the
+                browser.
+              </p>
               {s.certificates.length === 0 ? (
                 <EmptyState>No certificates</EmptyState>
               ) : (
                 <DataTable>
                   <thead>
                     <tr>
-                      <Th>Hostname</Th>
+                      <Th>Names</Th>
                       <Th>Source</Th>
+                      <Th>Serves</Th>
                       <Th>Expires</Th>
                       <Th className="text-right">Actions</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {s.certificates.map((c) => (
-                      <Tr key={c.hostname}>
+                      <Tr key={c.id}>
                         <Td>
-                          <Mono className="font-medium">{c.hostname}</Mono>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(c.names?.length ? c.names : [c.hostname]).map((n) => (
+                              <Mono
+                                key={n}
+                                className={
+                                  isWildcardName(n)
+                                    ? "rounded-sm border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-medium"
+                                    : "font-medium"
+                                }
+                              >
+                                {n}
+                              </Mono>
+                            ))}
+                          </div>
                         </Td>
                         <Td>
                           <Badge variant={c.source === "acme" ? "secondary" : "outline"}>{c.source}</Badge>
                         </Td>
+                        <Td>{c.server ? <Badge variant="secondary">server</Badge> : "–"}</Td>
                         <Td className="whitespace-nowrap" title={formatDateTime(c.not_after)}>
                           {c.not_after ? formatRelative(c.not_after) : "–"}
                         </Td>
                         <Td>
                           <div className="flex justify-end gap-1.5">
-                            <Button size="sm" variant="outline" onClick={() => setInstalling(c.hostname)}>
-                              Replace<span className="sr-only"> certificate of {c.hostname}</span>
-                            </Button>
-                            {c.source === "installed" && (
-                              <Button size="sm" variant="outline" onClick={() => setRemoving(c.hostname)}>
+                            {c.source !== "imported" && (
+                              <Button size="sm" variant="outline" onClick={() => setInstalling(c.hostname)}>
+                                Replace<span className="sr-only"> certificate of {c.hostname}</span>
+                              </Button>
+                            )}
+                            {c.source !== "acme" && (
+                              <Button size="sm" variant="outline" onClick={() => setRemoving(c)}>
                                 <Trash2 /> Remove<span className="sr-only"> {c.hostname}</span>
                               </Button>
                             )}
@@ -177,13 +216,17 @@ export default function Edge() {
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(o) => !o && setRemoving(null)}
-        title={`Remove certificate for ${removing ?? ""}?`}
-        description="The installed certificate and its key are deleted. The hostname falls back to the self-signed certificate (or ACME, where configured)."
+        title={`Remove certificate for ${removing?.names?.join(", ") || removing?.hostname || ""}?`}
+        description="The certificate and its key are deleted. Its names fall back to the self-signed certificate (or ACME, where configured)."
         confirmLabel="Remove certificate"
         onConfirm={async () => {
           if (!removing) return;
-          set(await api.edge.removeCertificate({ hostname: removing }));
-          toast.success(`Removed certificate for ${removing}`);
+          set(
+            await api.edge.removeCertificate(
+              removing.source === "imported" ? { id: removing.id } : { hostname: removing.hostname },
+            ),
+          );
+          toast.success(`Removed certificate for ${removing.hostname}`);
         }}
       />
     </>

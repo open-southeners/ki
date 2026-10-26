@@ -304,12 +304,13 @@ export interface ProjectService {
 
 export type DeploySource = "webhook" | "api" | "cli";
 export type DeployStatus = "queued" | "running" | "succeeded" | "failed" | "superseded" | "interrupted";
-export type DeployStage = "fetch" | "config" | "policy" | "build" | "up" | "health";
+export type DeployStage = "fetch" | "config" | "policy" | "pull" | "build" | "up" | "health";
 export type DeployFailureReason =
   | "fetch_failed"
   | "compose_not_found"
   | "compose_invalid"
   | "policy_violation"
+  | "pull_failed"
   | "build_failed"
   | "up_failed"
   | "health_failed"
@@ -364,7 +365,43 @@ export interface RepositoryErrorData {
   detail: string;
 }
 
+// --------------------------------------------------------------------- aws
+
+export interface AwsAgent {
+  installed: boolean;
+  unit?: string;
+  active: boolean;
+  enabled: boolean;
+  version?: string;
+  source: "deb" | "snap" | "" | (string & {});
+}
+
+export interface AwsStatus {
+  ec2: {
+    detected: boolean;
+    instance_id?: string;
+    instance_type?: string;
+    region?: string;
+    availability_zone?: string;
+    ami_id?: string;
+    instance_profile_arn?: string;
+    imds_v1_enabled?: boolean;
+  };
+  agents: { cloudwatch: AwsAgent; ssm: AwsAgent };
+}
+
 // -------------------------------------------------------------------- edge
+
+export interface EdgeCertificate {
+  /** Hostname for acme/installed, "i-<hex>" for imported; the remove key. */
+  id: string;
+  hostname: string;
+  names: string[];
+  source: "acme" | "installed" | "imported";
+  /** Serves the server hostnames. */
+  server: boolean;
+  not_after?: Timestamp;
+}
 
 export interface EdgeStatus {
   enabled: boolean;
@@ -373,9 +410,13 @@ export interface EdgeStatus {
   image: string;
   http_port: number;
   https_port: number;
+  /** front: the edge owns the public ports; behind: loopback HTTP behind another web server. */
+  mode?: "front" | "behind";
+  /** Address bound in behind mode. */
+  listen?: string;
   server_hostnames: string[];
   self_signed: { fingerprint_sha256: string; not_after: Timestamp };
-  certificates: Array<{ hostname: string; source: "acme" | "installed"; not_after?: Timestamp }>;
+  certificates: EdgeCertificate[];
   routes: number;
 }
 
@@ -506,10 +547,11 @@ export interface MethodMap {
     result: { subscription: SubscriptionID; interval_ms: number };
   };
   "containers.stats.unsubscribe": { params: { subscription: SubscriptionID }; result: Record<string, never> };
+  "aws.status": { params: undefined; result: AwsStatus };
   "edge.status": { params: undefined; result: EdgeStatus };
   "edge.csr": { params: { hostname: string }; result: EdgeCSRResult };
   "edge.certificate.install": { params: { hostname: string; certificate: string }; result: EdgeStatus };
-  "edge.certificate.remove": { params: { hostname: string }; result: EdgeStatus };
+  "edge.certificate.remove": { params: { id: string } | { hostname: string }; result: EdgeStatus };
   "enrollment.start": { params: { url?: string; force?: boolean } | undefined; result: EnrollmentAuthorization };
   "enrollment.wait": { params: undefined; result: { control_plane_url: string } };
   "enrollment.remove": { params: undefined; result: Record<string, never> };

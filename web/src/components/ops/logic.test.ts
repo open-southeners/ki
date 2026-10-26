@@ -3,6 +3,9 @@ import { RpcError } from "@/lib/rpc";
 import type { Deploy, HostSample, ProjectService } from "@/lib/types";
 import {
   appendHostSample,
+  awsAgentBadge,
+  failureReasonText,
+  isWildcardName,
   containersRunning,
   deployErrorText,
   deployStatusBadge,
@@ -159,5 +162,21 @@ describe("rollback targets", () => {
     expect(rollbackTargets(list).map((d) => d.id)).toEqual([4, 2]);
     expect(previousGood(list)?.id).toBe(2);
     expect(previousGood([deploy(1, "succeeded")])).toBeUndefined();
+  });
+});
+
+describe("aws helpers", () => {
+  test("awsAgentBadge", () => {
+    expect(awsAgentBadge({ installed: false, active: false, enabled: false }).label).toBe("not installed");
+    expect(awsAgentBadge({ installed: true, active: true, enabled: true }).tone).toBe("success");
+    expect(awsAgentBadge({ installed: true, active: false, enabled: true }).tone).toBe("warning");
+    expect(awsAgentBadge({ installed: true, active: false, enabled: false }).label).toBe("inactive");
+  });
+  test("isWildcardName", () => {
+    expect(isWildcardName("*.example.com")).toBe(true);
+    expect(isWildcardName("app.example.com")).toBe(false);
+  });
+  test("pull_failed has friendly text", () => {
+    expect(failureReasonText("pull_failed")).toContain("pulled");
   });
 });

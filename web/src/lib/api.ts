@@ -66,6 +66,7 @@ export function createApi(rpc: RpcClient) {
       list: m("deploys.list"),
     },
     host: { stats: m("host.stats") },
+    aws: { status: m("aws.status") },
     edge: {
       status: m("edge.status"),
       csr: m("edge.csr"),

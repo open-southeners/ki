@@ -4,6 +4,7 @@
 import { RpcError } from "@/lib/rpc";
 import {
   ErrorCode,
+  type AwsAgent,
   type Deploy,
   type DeployFailureReason,
   type DeployStatus,
@@ -224,6 +225,7 @@ const FAILURE_TEXT: Record<DeployFailureReason, string> = {
   compose_not_found: "No compose file was found in the repository.",
   compose_invalid: "The compose file is invalid.",
   policy_violation: "The compose file violates the agent's policy.",
+  pull_failed: "An image could not be pulled from its registry.",
   build_failed: "An image failed to build.",
   up_failed: "Containers could not be started.",
   health_failed: "A service did not become healthy in time.",
@@ -262,4 +264,18 @@ export function rollbackTargets(deploys: Deploy[]): Deploy[] {
 /** The deploy "previous good" resolves to: the second-newest succeeded one. */
 export function previousGood(deploys: Deploy[]): Deploy | undefined {
   return rollbackTargets(deploys)[1];
+}
+
+// --------------------------------------------------------------------- aws
+
+/** State of an AWS agent (SSM, CloudWatch) as one badge. */
+export function awsAgentBadge(a: Pick<AwsAgent, "installed" | "active" | "enabled">): BadgeSpec {
+  if (!a.installed) return { tone: "secondary", label: "not installed" };
+  if (a.active) return { tone: "success", label: "active" };
+  return { tone: "warning", label: a.enabled ? "enabled, not running" : "inactive" };
+}
+
+/** Whether a certificate name is a wildcard (*.example.com). */
+export function isWildcardName(name: string): boolean {
+  return name.startsWith("*.");
 }
