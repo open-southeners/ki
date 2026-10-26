@@ -369,3 +369,18 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   primitives with slightly different styling.
 - **Fix:** keep the `ui/` shadcn one and port the admin pages to it.
 
+
+## install.sh cannot install an unsigned local build when cosign is installed (M6)
+
+- **Where:** `install.sh` (`verify_signature`), `scripts/local-release.sh`.
+- **What:** with `cosign` on the machine the installer insists on `checksums.txt.sigstore.json`,
+  which a local build does not have, so `KI_INSTALL_BASE_URL=file://...` installs fail there.
+- **Fix:** add an explicit opt-out (for example `KI_INSTALL_SKIP_SIGNATURE=1`, only honoured for
+  `file://` base URLs) and document it next to the local-release instructions.
+
+## Docker config dir is not covered by the systemd sandbox when moved (M6)
+
+- **Where:** `packaging/systemd/ki-agent.service`, `docker.config_dir`.
+- **What:** the default `<data_dir>/docker` is inside `ReadWritePaths`; a custom location needs a
+  drop-in. Documented, but the agent only fails at the first `docker login`/deploy.
+- **Fix:** optionally check writability of `docker.config_dir` at start-up and log a warning.
