@@ -152,6 +152,7 @@ cat >"$STUBPKG/ki-agent" <<'STUB'
 case "$1" in
 version) echo "ki-agent stub" ;;
 panel) echo "an admin exists; use ki-agent users reset <name>" >&2; exit 1 ;;
+tunnel) echo "$*" >>/tmp/ki-stub-tunnel.log ;;
 esac
 STUB
 chmod +x "$STUBPKG/ki-agent"
@@ -164,6 +165,40 @@ python3 -c 'import socket; s = socket.socket(socket.AF_UNIX); s.bind("/run/ki-ag
 KI_INSTALL_BASE_URL="file://$STUBREL" sh "$SRC/install.sh" >"$WORK/out.log" 2>&1 || fail "install failed when an admin exists"
 assert "no hint printed" grep -q 'users reset' "$WORK/out.log"
 rm -f /run/ki-agent/ki.sock /usr/local/bin/ki-agent /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >/dev/null 2>&1 || fail "reinstall failed"
+
+echo "== --tunnel-token-file writes behind + tunnel config and stores the token after start"
+printf 'dHVubmVsLXRva2Vu\n' >"$WORK/tunnel.token"
+rm -f /etc/ki-agent/config.yaml /tmp/ki-stub-tunnel.log
+KI_INSTALL_BASE_URL="file://$STUBREL" sh "$SRC/install.sh" --tunnel-token-file "$WORK/tunnel.token" >"$WORK/out.log" 2>&1 || fail "install --tunnel-token-file failed"
+edge_mode() {
+	awk '/^edge:/ { e = 1; next } /^[^ #]/ { e = 0 } e && /^  mode:/ { print $2; exit }' /etc/ki-agent/config.yaml
+}
+tunnel_enabled() {
+	awk '/^tunnel:/ { e = 1; next } /^[^ #]/ { e = 0 } e && /^  enabled:/ { print $2; exit }' /etc/ki-agent/config.yaml
+}
+assert "edge mode not behind" test "$(edge_mode)" = behind
+assert "tunnel not enabled" test "$(tunnel_enabled)" = true
+assert "edge disabled by the tunnel option" test "$(edge_enabled)" = true
+assert "other config keys were damaged" grep -q '^  metrics_port: 20241$' /etc/ki-agent/config.yaml
+assert "token not stored through the CLI" grep -qx "tunnel configure --token-file $WORK/tunnel.token" /tmp/ki-stub-tunnel.log
+if grep -q 'dHVubmVsLXRva2Vu' "$WORK/out.log"; then fail "the token was printed"; fi
+if grep -q 'port(s)' "$WORK/out.log"; then fail "port warning shown although the tunnel needs no public ports"; fi
+
+echo "== --tunnel-token-file on an existing config only stores the token and says how"
+echo "# keep" >>/etc/ki-agent/config.yaml
+sed -i 's/^  mode: behind$/  mode: front/' /etc/ki-agent/config.yaml
+rm -f /tmp/ki-stub-tunnel.log
+KI_INSTALL_BASE_URL="file://$STUBREL" sh "$SRC/install.sh" --tunnel-token-file "$WORK/tunnel.token" >"$WORK/out.log" 2>&1 || fail "install --tunnel-token-file failed"
+assert "existing config was edited" test "$(edge_mode)" = front
+assert "no instruction printed" grep -q 'for the tunnel set edge.mode: behind' "$WORK/out.log"
+assert "token not stored" grep -q 'tunnel configure' /tmp/ki-stub-tunnel.log
+
+echo "== --tunnel-token-file rejects bad input before changing anything"
+if sh "$SRC/install.sh" --tunnel-token-file "$WORK/missing.token" >"$WORK/out.log" 2>&1; then fail "missing token file accepted"; fi
+if sh "$SRC/install.sh" --tunnel-token-file "$WORK/tunnel.token" --no-edge >"$WORK/out.log" 2>&1; then fail "--no-edge with the tunnel accepted"; fi
+if sh "$SRC/install.sh" --tunnel-token-file "$WORK/tunnel.token" --no-start >"$WORK/out.log" 2>&1; then fail "--no-start with the tunnel accepted"; fi
+rm -f /run/ki-agent/ki.sock /usr/local/bin/ki-agent /etc/ki-agent/config.yaml /tmp/ki-stub-tunnel.log
 sh "$SRC/install.sh" >/dev/null 2>&1 || fail "reinstall failed"
 
 echo "== upgrade keeps edited config"

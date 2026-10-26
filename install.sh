@@ -41,6 +41,15 @@ Options:
   --no-edge          Disable the managed reverse proxy (edge) in a newly
                      written config (edge.enabled: false). By default the
                      edge binds ports 80 and 443.
+  --tunnel-token-file FILE
+                     Expose the server through a Cloudflare Tunnel: a newly
+                     written config gets edge.mode: behind and
+                     tunnel.enabled: true, and after the service starts the
+                     token in FILE is stored with "ki-agent tunnel configure".
+                     Create the tunnel in the Cloudflare dashboard first and
+                     point its public hostnames at http://localhost:8480.
+                     With an existing config only the token is stored; set
+                     edge.mode and tunnel.enabled there yourself.
   --no-panel         Disable the web panel in a newly written config
                      (panel.enabled: false). By default the installer prints a
                      one-time link to create the panel admin after starting
@@ -246,6 +255,7 @@ main() {
 	no_start=0
 	no_edge=0
 	no_panel=0
+	tunnel_token_file=""
 	add_user=${SUDO_USER:-}
 
 	while [ $# -gt 0 ]; do
@@ -280,6 +290,11 @@ main() {
 			no_panel=1
 			shift
 			;;
+		--tunnel-token-file)
+			[ $# -ge 2 ] || die "--tunnel-token-file needs a file name"
+			tunnel_token_file=$2
+			shift 2
+			;;
 		--no-start)
 			no_start=1
 			shift
@@ -303,6 +318,11 @@ main() {
 	if [ -n "$version" ]; then
 		printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$' ||
 			die "invalid version '$version'; expected something like v1.2.3"
+	fi
+	if [ -n "$tunnel_token_file" ]; then
+		[ -f "$tunnel_token_file" ] && [ -r "$tunnel_token_file" ] || die "--tunnel-token-file: cannot read $tunnel_token_file"
+		[ "$no_edge" -eq 0 ] || die "--tunnel-token-file needs the edge; drop --no-edge"
+		[ "$no_start" -eq 0 ] || die "--tunnel-token-file needs the service running; drop --no-start"
 	fi
 	if [ "$do_enroll" -eq 1 ] && [ "$no_start" -eq 1 ]; then
 		die "--enroll needs the service running; drop --no-start"
@@ -435,7 +455,21 @@ main() {
 			rm -f "$CONFIG_PATH.new.$$"
 			config_note="$config_note (panel disabled)"
 		fi
-		if [ "$no_edge" -eq 0 ] && [ "$upgrade" -eq 0 ]; then
+		if [ -n "$tunnel_token_file" ]; then
+			# Behind mode (the tunnel reaches the edge on loopback) and the tunnel on.
+			awk '
+				/^edge:/ { insec = "edge"; print; next }
+				/^tunnel:/ { insec = "tunnel"; print; next }
+				/^[^ #]/ { insec = "" }
+				insec == "edge" && !edone && /^  mode:/ { print "  mode: behind"; edone = 1; next }
+				insec == "tunnel" && !tdone && /^  enabled:/ { print "  enabled: true"; tdone = 1; next }
+				{ print }
+			' "$CONFIG_PATH" >"$CONFIG_PATH.new.$$"
+			cat "$CONFIG_PATH.new.$$" >"$CONFIG_PATH"
+			rm -f "$CONFIG_PATH.new.$$"
+			config_note="$config_note (edge behind, tunnel enabled)"
+		fi
+		if [ "$no_edge" -eq 0 ] && [ "$upgrade" -eq 0 ] && [ -z "$tunnel_token_file" ]; then
 			taken=$(listening_web_ports | tr '\n' ' ')
 			if [ -n "$taken" ]; then
 				warn "something already listens on port(s) ${taken}which the edge proxy needs (80 and 443); the edge will report an error until they are free. Stop that service, change edge.http_port/edge.https_port in $CONFIG_PATH, or reinstall with --no-edge"
@@ -444,6 +478,9 @@ main() {
 	else
 		if [ "$no_edge" -eq 1 ]; then
 			warn "$CONFIG_PATH already exists and was not changed; to disable the edge set \"enabled: false\" under \"edge:\" there (or KI_EDGE_ENABLED=false) and restart the service"
+		fi
+		if [ -n "$tunnel_token_file" ]; then
+			warn "$CONFIG_PATH already exists and was not changed; for the tunnel set edge.mode: behind and tunnel.enabled: true there and restart the service"
 		fi
 		if [ "$no_panel" -eq 1 ]; then
 			warn "$CONFIG_PATH already exists and was not changed; to disable the panel set \"enabled: false\" under \"panel:\" there (or KI_PANEL_ENABLED=false) and restart the service"
@@ -478,6 +515,19 @@ main() {
 
 	if has_systemd && [ "$no_start" -eq 0 ] && ! panel_disabled; then
 		setup_panel
+	fi
+
+	if [ -n "$tunnel_token_file" ]; then
+		if ! has_systemd; then
+			warn "skipping the tunnel token: the service is not running; run later: ki-agent tunnel configure --token-file FILE"
+		else
+			wait_for_socket || true
+			if "$BIN_PATH" tunnel configure --token-file "$tunnel_token_file" >/dev/null; then
+				log "stored the Cloudflare Tunnel token; check it with: ki-agent tunnel status"
+			else
+				warn "could not store the tunnel token; run later: ki-agent tunnel configure --token-file FILE"
+			fi
+		fi
 	fi
 
 	if [ "$do_enroll" -eq 1 ]; then
