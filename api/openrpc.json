@@ -1875,6 +1875,18 @@
       ]
     },
     {
+      "name": "aws.status",
+      "x-role": "viewer",
+      "summary": "Report whether the server is an EC2 instance and which AWS agents run on it.",
+      "description": "Uses IMDSv2 only (never reads instance credentials); answers from a 10 minute cache and, off EC2, within about a second. The AWS agents are detected without root from systemd unit state; their registration is not visible locally. Capability aws.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/AwsStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" }
+      ]
+    },
+    {
       "name": "edge.status",
       "x-role": "viewer",
       "summary": "Report the state of the edge proxy.",
@@ -1934,14 +1946,35 @@
       ]
     },
     {
+      "name": "edge.certificate.import",
+      "x-role": "admin",
+      "summary": "Import a bring-your-own certificate and key (local socket only).",
+      "description": "Transport-restricted to the Unix socket: the private key is never accepted from the control plane or the HTTP API. The key must match the leaf, the leaf must be valid now and not expire within 24 hours; the names are the leaf's DNS subject alternative names, wildcards (*.example.com, one label deep) allowed. The certificate is stored under the data directory and keyed by a stable id derived from its names; importing the same names again replaces it. A project router whose every domain is covered by an installed or imported certificate is served with it instead of ACME. With server true the non-wildcard names become server hostnames (panel, hooks) and are subject to the reserved-hostname rule. Returns the updated edge status.",
+      "x-transports": ["unix"],
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "certificate", "description": "PEM certificate chain, leaf first.", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "key", "description": "PEM private key matching the leaf.", "required": true, "schema": { "type": "string", "minLength": 1 } },
+        { "name": "server", "description": "Mark the non-wildcard names as server hostnames. Default false.", "schema": { "type": "boolean" } }
+      ],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/EdgeStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/AlreadyExists" }
+      ]
+    },
+    {
       "name": "edge.certificate.remove",
       "x-role": "admin",
-      "summary": "Remove the installed certificate and key of a server hostname (local socket and control plane only).",
-      "description": "Transport-restricted like edge.csr. Deletes the certificate and key; the hostname stops being a server hostname. Returns the updated edge status.",
+      "summary": "Remove an installed or imported certificate and key (local socket and control plane only).",
+      "description": "Transport-restricted like edge.csr. Pass id (an imported certificate's id from edge.status) or hostname (a server hostname with an installed certificate); id wins when both are given. Deletes the certificate and key. Returns the updated edge status.",
       "x-transports": ["unix", "control-plane"],
       "paramStructure": "by-name",
       "params": [
-        { "name": "hostname", "description": "Server hostname.", "required": true, "schema": { "type": "string", "minLength": 1 } }
+        { "name": "id", "description": "Certificate id as reported by edge.status.", "schema": { "type": "string", "minLength": 1 } },
+        { "name": "hostname", "description": "Server hostname with an installed certificate.", "schema": { "type": "string", "minLength": 1 } }
       ],
       "result": { "name": "status", "schema": { "$ref": "#/components/schemas/EdgeStatus" } },
       "errors": [
@@ -3080,10 +3113,50 @@
           "source": { "type": "string", "enum": ["labels", "project"], "description": "labels: ki.expose.* labels of the last successful deploy; project: set with projects.expose, overrides the labels." }
         }
       },
+      "AwsAgent": {
+        "type": "object",
+        "required": ["installed", "active", "enabled", "source"],
+        "properties": {
+          "installed": { "type": "boolean" },
+          "unit": { "type": "string", "description": "The systemd unit found." },
+          "active": { "type": "boolean" },
+          "enabled": { "type": "boolean" },
+          "version": { "type": "string" },
+          "source": { "type": "string", "enum": ["deb", "snap", ""], "description": "How the agent is installed; empty when not installed." }
+        }
+      },
+      "AwsStatus": {
+        "type": "object",
+        "required": ["ec2", "agents"],
+        "properties": {
+          "ec2": {
+            "type": "object",
+            "required": ["detected"],
+            "properties": {
+              "detected": { "type": "boolean", "description": "False when the metadata service is unreachable (not on EC2); the other fields are then absent." },
+              "instance_id": { "type": "string" },
+              "instance_type": { "type": "string" },
+              "region": { "type": "string" },
+              "availability_zone": { "type": "string" },
+              "ami_id": { "type": "string" },
+              "instance_profile_arn": { "type": "string", "description": "Absent when the instance has no role." },
+              "imds_v1_enabled": { "type": "boolean", "description": "True when an unauthenticated (IMDSv1) request succeeds; recommended to disable." }
+            }
+          },
+          "agents": {
+            "type": "object",
+            "required": ["cloudwatch", "ssm"],
+            "properties": {
+              "cloudwatch": { "$ref": "#/components/schemas/AwsAgent" },
+              "ssm": { "$ref": "#/components/schemas/AwsAgent" }
+            }
+          }
+        }
+      },
       "EdgeStatus": {
         "type": "object",
         "description": "State of the edge proxy.",
-        "required": ["enabled", "state", "image", "http_port", "https_port", "server_hostnames", "self_signed", "certificates", "routes"],
+        "required": ["enabled", "state", "image", "http_port", "https_port", "mode", "server_hostnames", "self_signed", "certificates", "routes"],
         "properties": {
           "enabled": { "type": "boolean" },
           "state": { "type": "string", "enum": ["disabled", "starting", "running", "error"] },
@@ -3091,6 +3164,8 @@
           "image": { "type": "string" },
           "http_port": { "type": "integer" },
           "https_port": { "type": "integer" },
+          "mode": { "type": "string", "enum": ["front", "behind"], "description": "front: the edge owns the public ports. behind: it listens on loopback plain HTTP behind another web server that owns TLS." },
+          "listen": { "type": "string", "description": "Address the proxy binds in behind mode (edge.behind_listen); absent in front mode." },
           "server_hostnames": { "type": "array", "description": "Hostnames the server itself answers on (edge.domain and hostnames with an installed certificate). Projects cannot expose these.", "items": { "type": "string" } },
           "self_signed": {
             "type": "object",
@@ -3105,11 +3180,14 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["hostname", "source"],
+              "required": ["id", "hostname", "names", "source", "server"],
               "properties": {
-                "hostname": { "type": "string" },
-                "source": { "type": "string", "enum": ["acme", "installed"] },
-                "not_after": { "type": "string", "format": "date-time", "description": "Known for installed certificates." }
+                "id": { "type": "string", "description": "Pass to edge.certificate.remove: the hostname for acme and installed certificates, i-<hex> for imported ones." },
+                "hostname": { "type": "string", "description": "The first of names." },
+                "names": { "type": "array", "items": { "type": "string" }, "description": "DNS names covered; imported certificates may hold wildcards." },
+                "source": { "type": "string", "enum": ["acme", "installed", "imported"] },
+                "server": { "type": "boolean", "description": "True when the certificate serves server hostnames." },
+                "not_after": { "type": "string", "format": "date-time", "description": "Known for installed and imported certificates." }
               }
             }
           },
@@ -3215,6 +3293,7 @@
               "fetch",
               "config",
               "policy",
+              "pull",
               "build",
               "up",
               "health"
@@ -3271,6 +3350,7 @@
               "compose_not_found",
               "compose_invalid",
               "policy_violation",
+              "pull_failed",
               "build_failed",
               "up_failed",
               "health_failed",

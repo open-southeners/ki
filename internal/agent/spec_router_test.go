@@ -9,6 +9,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/accounts"
 	"github.com/open-southeners/ki-agent/internal/agent"
 	"github.com/open-southeners/ki-agent/internal/auth"
+	"github.com/open-southeners/ki-agent/internal/aws"
 	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/deploys"
 	"github.com/open-southeners/ki-agent/internal/edge"
@@ -58,8 +59,12 @@ func TestSpecMatchesRouter(t *testing.T) {
 		}
 		if len(m.Transports) > 0 {
 			restricted = append(restricted, m.Name)
-			if !slices.Equal(m.Transports, []string{rpc.TransportUnix, rpc.TransportControlPlane}) {
-				t.Errorf("%s: x-transports = %v", m.Name, m.Transports)
+			wantT := []string{rpc.TransportUnix, rpc.TransportControlPlane}
+			if m.Name == edge.MethodImport { // keys never travel over the control plane
+				wantT = []string{rpc.TransportUnix}
+			}
+			if !slices.Equal(m.Transports, wantT) {
+				t.Errorf("%s: x-transports = %v, want %v", m.Name, m.Transports, wantT)
 			}
 		}
 		if m.Notification {
@@ -93,6 +98,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 	r := rpc.NewRouter()
 	agent.New().Register(r)
 	containers.New(nil, nil).Register(r)
+	aws.New().Register(r)
 	projects.NewHandlers(nil).Register(r)
 	deploys.NewHandlers(nil).Register(r)
 	edge.NewHandlers(nil, "", nil).Register(r)
@@ -120,7 +126,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 	if !slices.Equal(local, want) {
 		t.Errorf("x-local-only methods = %v, want %v", local, want)
 	}
-	wantRestricted := []string{edge.MethodCSR, edge.MethodInstall, edge.MethodRemove}
+	wantRestricted := []string{edge.MethodCSR, edge.MethodInstall, edge.MethodRemove, edge.MethodImport}
 	slices.Sort(wantRestricted)
 	if !slices.Equal(restricted, wantRestricted) {
 		t.Errorf("x-transports methods = %v, want %v", restricted, wantRestricted)

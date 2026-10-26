@@ -19,6 +19,7 @@ import (
 
 	"github.com/open-southeners/ki-agent/internal/accounts"
 	"github.com/open-southeners/ki-agent/internal/agent"
+	"github.com/open-southeners/ki-agent/internal/aws"
 	"github.com/open-southeners/ki-agent/internal/compose"
 	"github.com/open-southeners/ki-agent/internal/config"
 	"github.com/open-southeners/ki-agent/internal/containers"
@@ -196,6 +197,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	ag := agent.New()
 	ag.Register(router)
 	containers.New(rt, logger).Register(router)
+	aws.New().Register(router)
 	projects.NewHandlers(projSvc).Register(router)
 	deploys.NewHandlers(deployMgr).Register(router)
 	edgeHandlers := edge.NewHandlers(edgeMgr, filepath.Join(cfg.DataDir, "edge"), logger)
