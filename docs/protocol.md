@@ -25,13 +25,140 @@ peers, but the agent API only ever flows client to agent.
 | Transport | Who connects | Framing | Auth |
 |---|---|---|---|
 | Unix socket (`socket.path`, default `/run/ki-agent/ki.sock`) | local client to agent | one JSON message per line (`\n`), max 4 MiB per line | file mode |
-| WebSocket listener (`websocket.listen`, `websocket.path`) | control plane to agent | one JSON message per WebSocket text message, max 4 MiB | `Authorization: Bearer <token>` (401 otherwise) |
-| Outbound connection (`control_plane.url`) | **agent to control plane** | as WebSocket listener | bearer token sent by the agent |
+| HTTP listeners (`api.listen`, `api.edge_listen`), WebSocket at `/rpc` | local scripts, the web panel, and clients through the edge | one JSON message per WebSocket text message, max 4 MiB | API token (`Authorization: Bearer ki_...`) or panel session cookie (401 otherwise); see [Authentication and roles](#authentication-and-roles) |
+| Outbound connection (`control_plane.url`) | **agent to control plane** | as the WebSocket at `/rpc` | bearer token sent by the agent |
 
 The outbound connection exists for agents that cannot be reached from outside
 (NAT, firewalls): the agent dials the control plane, and once the WebSocket is
 up, **the control plane is the JSON-RPC client**. The rest of this document
 applies equally to all three transports unless it says otherwise.
+
+## Authentication and roles
+
+Capability `auth`. Every principal has a role, and every method has the
+minimum role it needs (`x-role` in the OpenRPC document). Roles are ordered
+`viewer < operator < admin`; a higher role includes the lower ones.
+
+| Role | Methods |
+|---|---|
+| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `auth.whoami` |
+| `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger` |
+| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
+
+A call below the required role fails with `-32001` and the message
+`forbidden: requires <role>`. A method that is not in the role table is denied
+for everyone, so new methods are never open by accident. `auth.whoami` returns
+`{kind, name, role}` of the connection's principal.
+
+### Principals
+
+| Kind | Who | Role |
+|---|---|---|
+| `local` | A client on the Unix socket (file mode `0660`, group `ki-agent`) | `admin` |
+| `control-plane` | The control plane over the outbound connection or enrollment | `admin` |
+| `user` | A panel user signed in with a session cookie | the user's role |
+| `token` | A client presenting an API token | the token's role |
+
+### Listener model
+
+The agent never trusts forwarded headers on a port it does not own. It has two
+loopback-only HTTP listeners (validation rejects anything else) with the same
+handlers:
+
+- **Direct** (`api.listen`, default `127.0.0.1:8091`): for local scripts and
+  development. `/rpc` accepts API tokens and, with the panel enabled, session
+  cookies. The client address is the TCP peer; `X-Forwarded-For` is ignored.
+- **Edge** (`api.edge_listen`, default `127.0.0.1:8092`, only when the edge is
+  enabled): the only upstream the edge routes to. Session cookies work (panel
+  enabled); API tokens are accepted on `/rpc` **only when
+  `api.public_tokens: true`** (default false). The client address for rate
+  limiting and the audit log is the last `X-Forwarded-For` hop, added by the
+  edge.
+
+A bearer token presented where tokens are not accepted is refused with 401
+rather than falling back to a cookie. With `panel.enabled: false` (or `ki-agent
+run --no-panel`) `/auth/*` and `/` answer 404, the edge routes neither, and
+`/rpc` keeps serving tokens on the direct listener (and through the edge when
+`api.public_tokens` is set).
+
+The edge routes `/rpc`, `/auth/` and `/` on the server's own hostnames and on
+IP-literal hosts only, never as a catch-all, so path-limited project domains
+never fall through to the panel. `/hooks/` keeps going to the webhook
+listener.
+
+### Sign-in, setup links and sessions
+
+Panel users have a username, a role, a password (argon2id) and a TOTP
+authenticator (RFC 6238: SHA-1, 6 digits, 30 s, one step of drift; a code is
+accepted once). The HTTP endpoints below are JSON.
+
+- **Setup link.** `users.create`, `users.reset` and `panel.setup` issue a link
+  `https://<host>/setup#<token>`. The token is in the URL fragment (it never
+  reaches server logs), single use and valid for 30 minutes; issuing a new
+  link invalidates older ones. The host is `panel.public_url`, else
+  `edge.domain`, else the first installed control-plane hostname, else the
+  host's first non-loopback IPv4 address. In the IP case the result also
+  carries `fingerprint_sha256` of the edge's self-signed certificate, to
+  compare in the browser warning. With the edge disabled the link points at
+  the direct listener on localhost.
+- `POST /auth/setup/begin {token}` returns `{username, role, totp_secret,
+  otpauth_uri}`; the secret is generated on the server and replaced on every
+  call. `POST /auth/setup/finish {token, password, code}` checks the password
+  policy (12 to 1024 characters, not equal to the username) and the TOTP code,
+  activates the user, consumes the token and signs the user in. Any token
+  problem is one generic 400.
+- `POST /auth/login {username, password, code}` answers a generic 401
+  `invalid credentials` for every failure (unknown user, wrong password,
+  wrong or replayed code, disabled or pending user). Failures are limited per
+  client address (10 per 15 minutes, then 429 with `Retry-After`) and per
+  account (5 consecutive failures lock the account for 15 minutes, doubling up
+  to 24 hours; a successful login resets it). `POST /auth/logout` ends the
+  session; `GET /auth/session` returns `{username, role}` or 401.
+- **CSRF.** Every `/auth/*` POST requires `Content-Type: application/json` and
+  an `Origin` header whose host equals the request `Host`. The `/rpc` upgrade
+  keeps the same-origin check of the WebSocket library when a cookie is used,
+  so a page on another origin cannot open an authenticated socket.
+- **Session cookie** `__Host-ki_session`: `Secure`, `HttpOnly`,
+  `SameSite=Strict`, `Path=/`. Because it is `Secure`, the panel works over
+  HTTPS (through the edge) or on `localhost`; plain HTTP on another host will
+  not keep the cookie. A session ends after `panel.session_idle` (12 hours)
+  without use or `panel.session_max` (7 days) after sign-in. Only a hash of the
+  session id is stored.
+- Responses carry `Content-Security-Policy: default-src 'self'`,
+  `frame-ancestors 'none'`, `Referrer-Policy: no-referrer` and
+  `X-Content-Type-Options: nosniff`; `/auth/*` responses are `no-store`.
+
+### API tokens
+
+`tokens.create {name, role, expires_in?}` returns a token `ki_...` once; only
+its hash is stored. `expires_in` is a Go duration of at most one year.
+`tokens.list` never shows secrets (it shows name, role, creator, expiry and
+last use); `tokens.revoke {name}` stops the token at once. Use a token with
+`Authorization: Bearer ki_...` on the WebSocket handshake of the direct
+listener (or the edge with `api.public_tokens: true`).
+
+### Users and revocation
+
+`users.list`, `users.create {username, role}`, `users.update {username, role?,
+disabled?}`, `users.reset {username}` (clears password and authenticator,
+issues a new link) and `users.delete {username}`. Usernames match
+`^[a-z][a-z0-9_.-]{1,31}$`. The last active admin cannot be deleted, disabled
+or demoted (`-32602`). `panel.setup {username?}` creates the first admin and
+fails with `-32602` once an active admin exists; use `users.reset` then.
+
+Disabling, deleting, resetting or changing the role of a user ends its
+sessions **and closes its open connections**; revoking a token closes the
+connections that used it. Clients reconnect and are refused.
+
+### Audit log
+
+`audit.list {limit?, before_id?}` returns entries newest first (at most 500
+per call; page with `before_id`). The log records every call to an `operator`
+or `admin` method, successful or failed, and the authentication events
+(login, failed login, setup, logout, lockout) with time, principal, client
+address, action, target (a project slug, name or id, never secrets or values)
+and result (`ok` or the error code). Calls denied for lack of role are not
+recorded. The newest 10 000 entries are kept.
 
 ## Outbound connection contract
 
@@ -75,7 +202,7 @@ by the environment variable `KI_CONTROL_PLANE_<KEY>`.
 | Key | Default | Meaning |
 |---|---|---|
 | `url` | empty (disabled) | `wss://host/path` (or `ws://127.0.0.1:port/path` for development) |
-| `token_file` | none | File holding the bearer token; required when `url` is set. Same rules as `websocket.token_file` |
+| `token_file` | none | File holding the bearer token the agent presents; required when `url` is set. Must be a readable, non-empty file |
 | `ca_file` | none | Extra PEM CA bundle trusted in addition to system roots |
 | `heartbeat_interval` | `15s` | Ping period |
 | `heartbeat_timeout` | `45s` | Drop the connection if no pong in this time; must exceed `heartbeat_interval` |
@@ -466,7 +593,7 @@ fingerprint and expiry are in `edge.status` (`self_signed`) and
 
 `edge.status` always answers; with the edge disabled it reports `enabled:
 false` and `state: disabled`. The restricted methods answer `-32001` on the
-agent's WebSocket listener, and a hostname that a project exposes is refused
+agent's HTTP listeners, and a hostname that a project exposes is refused
 with `-32009`.
 
 ### Control-plane certificates
@@ -591,7 +718,7 @@ stored.
 ### Local enrollment methods
 
 Capability `enrollment`. These methods control the agent itself, so they are
-**local-only**: any transport other than the Unix socket (WebSocket listener,
+**local-only**: any transport other than the Unix socket (HTTP listeners,
 outbound connection) is refused with `-32001` ("only available on the local
 socket"). This is what `ki-agent enroll` and `unenroll` use.
 
@@ -635,7 +762,7 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32601 | Method not found | Unknown method |
 | -32602 | Invalid params | Params missing or wrong (also a non-semver `protocol` in `agent.hello`) |
 | -32603 | Internal error | Handler failed or panicked |
-| -32001 | Unauthorized | A local-only method (`enrollment.*`) called over a transport other than the Unix socket, or a transport-restricted one (`edge.csr`, `edge.certificate.install`, `edge.certificate.remove`: Unix socket and control plane only) called over another. Authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
+| -32001 | Unauthorized | `forbidden: requires <role>` (the principal's role is below the method's `x-role`), a local-only method (`enrollment.*`) called over a transport other than the Unix socket, or a transport-restricted one (`edge.csr`, `edge.certificate.install`, `edge.certificate.remove`: Unix socket and control plane only) called over another. Authentication failures are HTTP 401 before the upgrade, not JSON-RPC errors |
 | -32002 | Handshake required | Method called before a successful `agent.hello` |
 | -32003 | Incompatible version | Major version mismatch; `data.supported` is the agent's version; the connection is closed |
 | -32004 | Subscription not found | Unknown subscription id on unsubscribe |
@@ -679,7 +806,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}

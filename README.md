@@ -32,6 +32,7 @@ sha256 checksum (always) and then installs:
 | `--version vX.Y.Z` | Install that release instead of the latest |
 | `--with-docker` | Install Docker Engine (via get.docker.com) if it or the Compose plugin is missing |
 | `--enroll [URL]` | Run `ki-agent enroll [URL]` once the service is up (see below) |
+| `--no-panel` | Write `panel.enabled: false` into a newly created config, so the web panel is not served (see [Users, roles and tokens](#users-roles-and-tokens)) |
 | `--no-edge` | Write `edge.enabled: false` into a newly created config, so no reverse proxy is started (see [Exposing services](#exposing-services)) |
 | `--no-start` | Enable the service but do not start it |
 | `--add-user USER` | Add `USER` to the `ki-agent` group (default: the user who ran `sudo`) |
@@ -83,10 +84,10 @@ instead of with the installer, create a `ki-agent` user and group (member of
 
 Config is read from `/etc/ki-agent/config.yaml` (or `--config`), then
 overridden by `KI_*` environment variables such as `KI_DATA_DIR` or
-`KI_WEBSOCKET_LISTEN`. Every key is documented in
-[`packaging/config.example.yaml`](packaging/config.example.yaml). The
-WebSocket listener is off by default and, when enabled, requires a bearer
-token file. `docker.host` (env `KI_DOCKER_HOST`, default
+`KI_API_LISTEN`. Every key is documented in
+[`packaging/config.example.yaml`](packaging/config.example.yaml). The HTTP API
+(`api.*`) and the web panel (`panel.*`) are on by default and bind loopback
+only; see [Users, roles and tokens](#users-roles-and-tokens). `docker.host` (env `KI_DOCKER_HOST`, default
 `unix:///var/run/docker.sock`) selects the container engine; the agent starts
 even if the engine is down.
 
@@ -94,8 +95,9 @@ even if the engine is down.
 
 The agent speaks [JSON-RPC 2.0](https://www.jsonrpc.org/specification) over a
 local Unix socket (`socket.path`, default `/run/ki-agent/ki.sock`, one JSON
-message per line) and, when `websocket.listen` is set, over a WebSocket at
-`websocket.path` that requires `Authorization: Bearer <token>`. Both ends are
+message per line) and over a WebSocket at `/rpc` on the loopback listener
+`api.listen` (default `127.0.0.1:8091`) that requires an API token
+(`Authorization: Bearer <token>`) or a panel session. Both ends are
 symmetric peers. The full contract is the OpenRPC document
 [`api/openrpc.json`](api/openrpc.json), also returned by `rpc.discover`.
 
@@ -115,14 +117,14 @@ socat - UNIX-CONNECT:/run/ki-agent/ki.sock
 {"jsonrpc":"2.0","id":2,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}
 
 # WebSocket
-websocat -H 'Authorization: Bearer YOUR_TOKEN' ws://127.0.0.1:8443/rpc
+websocat -H 'Authorization: Bearer YOUR_TOKEN' ws://127.0.0.1:8091/rpc
 {"jsonrpc":"2.0","id":1,"method":"agent.hello","params":{"protocol":"1.0.0"}}
 {"jsonrpc":"2.0","id":2,"method":"agent.info"}
 ```
 
 ## Connecting to a control plane
 
-Besides serving the Unix socket and the optional WebSocket listener, the agent
+Besides serving the Unix socket and the HTTP listeners, the agent
 can dial out to a control plane, which suits servers behind NAT or a firewall.
 Set `control_plane.url` (`wss://`, or `ws://` for loopback development) and
 `control_plane.token_file`; the agent then keeps one WebSocket open with
@@ -156,7 +158,7 @@ Credentials live in `<data_dir>/control-plane.json` (mode 0600). While that file
 exists it replaces `control_plane.url` and `control_plane.token_file`; the other
 `control_plane.*` settings (CA file, heartbeat, reconnect) still apply.
 Enrollment is local-only: `enrollment.*` methods are refused with `-32001` on
-the WebSocket listener and on the control-plane connection itself, so a remote
+the HTTP listeners and on the control-plane connection itself, so a remote
 peer can never re-point the agent.
 
 ## Container management
@@ -331,6 +333,52 @@ outside the project folder, build SSH forwarding, `sysctls` other than `net.*`,
 `provider` services and any `runtime` other than `runc`. These are the usual
 host-escape routes. A deploy with violations fails with `policy_violation` and
 the list of violations; nothing is built or started.
+
+## Users, roles and tokens
+
+Remote access is authenticated. Three roles, each including the ones before it:
+**viewer** (read-only: list and inspect containers, projects, deploys, edge
+status), **operator** (also start, stop and restart containers and trigger
+deploys) and **admin** (everything else, including projects, environment
+variables, exposure, users and tokens). The local Unix socket and the control
+plane act as admin. The full method-to-role table is in
+[`docs/protocol.md`](docs/protocol.md) and in `x-role` of
+[`api/openrpc.json`](api/openrpc.json).
+
+```sh
+ki-agent panel setup                       # first admin: prints a one-time link (the installer runs this)
+ki-agent users create bob --role operator  # prints bob's one-time setup link
+ki-agent users list
+ki-agent users update bob --role viewer    # or --disable / --enable
+ki-agent users reset bob                   # lost password or authenticator: new link
+ki-agent users delete bob
+ki-agent tokens create ci --role operator --expires-in 720h   # shown once
+ki-agent tokens list
+ki-agent tokens revoke ci
+ki-agent audit --limit 50                  # who did what
+```
+
+Open the link in a browser to choose a password and enrol an authenticator app;
+links are valid for 30 minutes and work once. The panel is served at `/` on the
+edge's hostnames and IP (HTTPS) and at `http://127.0.0.1:8091/` on the server
+itself. Its session cookie is `Secure`, so it needs HTTPS or `localhost`.
+Disable the panel with `panel.enabled: false`, `KI_PANEL_ENABLED=false`,
+`ki-agent run --no-panel` or `install.sh --no-panel`; the API and tokens keep
+working on `127.0.0.1:8091`.
+
+API tokens authenticate WebSocket clients on `api.listen`. Through the edge they
+are refused unless `api.public_tokens: true`; panel sessions always work there.
+With `--no-edge` there is no remote route at all (the panel and API stay on
+loopback). Setup links use `panel.public_url`, else `edge.domain`, else the
+server's IP address together with the self-signed certificate fingerprint to
+compare in the browser.
+
+**Migrating from `websocket.*`**: the `websocket` section and its token file
+were removed before the first release. Replace `websocket.listen` with
+`api.listen` (loopback only, default `127.0.0.1:8091`), the heartbeat keys with
+`api.heartbeat_interval` / `api.heartbeat_timeout`, `KI_WEBSOCKET_*` with
+`KI_API_*`, and create tokens with `ki-agent tokens create` instead of a token
+file. The agent refuses to start while a `websocket:` key remains.
 
 ## Exposing services
 
