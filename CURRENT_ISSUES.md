@@ -384,3 +384,30 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **What:** the default `<data_dir>/docker` is inside `ReadWritePaths`; a custom location needs a
   drop-in. Documented, but the agent only fails at the first `docker login`/deploy.
 - **Fix:** optionally check writability of `docker.config_dir` at start-up and log a warning.
+
+## Tunnel readiness is not tested against real Cloudflare (M6b)
+
+- **Where:** `internal/tunnel/manager.go` (`probe`).
+- **What:** tests use a fake `/ready` server and the dind smoke only ran with a syntactically valid
+  but fake token (the connector reached Cloudflare and got "Failed to get tunnel", so the state
+  went `starting` then `disconnected`). The `/ready` JSON fields (`readyConnections`) were taken
+  from the cloudflared source (`metrics/readiness.go`); Cloudflare's docs only promise HTTP 200 when
+  connected. A real connected tunnel was never exercised.
+- **Fix:** try once with a real tunnel before a release; the agent already falls back to
+  `connections: 0` when the body has no `readyConnections`.
+
+## The tunnel container runs as the agent's uid (M6b)
+
+- **Where:** `internal/tunnel/gen.go` (`user:`), `internal/cli/run.go`.
+- **What:** the connector runs as the agent's uid:gid so it can read the 0600 token without
+  `DAC_OVERRIDE`. The smoke ran with the agent as root (dev container); the non-root systemd case
+  (`ki-agent` user, distroless image without a passwd entry for that uid) was only reasoned about.
+- **Fix:** smoke-test with the packaged unit on a real host; if `cloudflared` needs a `HOME`, add
+  `tmpfs` plus `HOME=/tmp` to the generated service.
+
+## Panel has no UI to set or remove the tunnel token (M6b)
+
+- **Where:** `web/src/components/ops/TunnelCard.tsx`.
+- **What:** the token is only set through the CLI or the control plane (the panel transport is
+  deliberately refused by `tunnel.configure`), so the card is read-only.
+- **Fix:** none needed unless the transport policy changes.

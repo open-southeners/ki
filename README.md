@@ -34,6 +34,7 @@ sha256 checksum (always) and then installs:
 | `--enroll [URL]` | Run `ki-agent enroll [URL]` once the service is up (see below) |
 | `--no-panel` | Write `panel.enabled: false` into a newly created config, so the web panel is not served (see [Users, roles and tokens](#users-roles-and-tokens)) |
 | `--no-edge` | Write `edge.enabled: false` into a newly created config, so no reverse proxy is started (see [Exposing services](#exposing-services)) |
+| `--tunnel-token-file FILE` | Expose the server through a Cloudflare Tunnel: a new config gets `edge.mode: behind` and `tunnel.enabled: true`, and the token in `FILE` is stored once the service is up (see [Exposing a server through Cloudflare Tunnel](#exposing-a-server-through-cloudflare-tunnel)) |
 | `--no-start` | Enable the service but do not start it |
 | `--add-user USER` | Add `USER` to the `ki-agent` group (default: the user who ran `sudo`) |
 
@@ -570,6 +571,57 @@ prints `EC2  not detected` within about a second. A warning is shown when the
 unauthenticated IMDSv1 is still enabled. Agent state is read from systemd
 without root. What the agents report and why registration is not shown is
 explained in [`docs/aws-agents.md`](docs/aws-agents.md).
+
+## Exposing a server through Cloudflare Tunnel
+
+A server without a fixed public IPv4 address, or with ports 80/443 closed, can
+be reached through a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
+the agent runs `cloudflared` (a managed `ki-tunnel` container, pinned image
+`cloudflare/cloudflared`), which connects **outbound** to Cloudflare.
+Cloudflare terminates TLS and forwards each public hostname through the tunnel
+to the edge in behind mode. No inbound port needs to be open.
+
+1. In the Cloudflare Zero Trust dashboard create a **remotely managed**
+   tunnel and copy its token. Add one public hostname per domain (the panel
+   hostname, every project domain) with the service `http://localhost:8480`
+   (the default `edge.behind_listen`).
+2. Configure the agent and restart it:
+
+   ```yaml
+   edge:
+     mode: behind
+   tunnel:
+     enabled: true
+   ```
+
+3. Store the token (read from standard input or a file, never from an
+   argument, so it does not reach the process list or shell history):
+
+   ```sh
+   ki-agent tunnel configure --token-stdin      # paste the token, Ctrl-D
+   ki-agent tunnel configure --token-file /root/tunnel.token
+   ki-agent tunnel status
+   ```
+
+`ki-agent tunnel status` (also on the Overview and Edge pages of the web panel)
+shows the state: `unconfigured` (enabled, no token yet), `starting`,
+`connected` (with the number of active connections, from the connector's
+`/ready` endpoint on `127.0.0.1:tunnel.metrics_port`, default 20241),
+`disconnected` or `error`. It warns when the edge is not in behind mode.
+`ki-agent tunnel remove` deletes the token and the container. The installer can
+do steps 2 and 3 on a fresh install with `--tunnel-token-file FILE`.
+
+The token is stored in a root-only file under `<data_dir>/tunnel/secret` and is
+handed to `cloudflared` as a read-only mounted file (`--token-file`, cloudflared
+2025.4.0 or later), so it is not in the command line, the container environment,
+the generated Compose file, the logs or any RPC result. The connector runs as
+the agent's user with all capabilities dropped and a read-only root filesystem.
+Changing the token restarts the container. The agent never changes the tunnel's
+public hostnames: they are managed in Cloudflare.
+
+Since anyone who can reach a public hostname reaches the panel, protect the
+panel hostname with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
+in addition to the panel's own sign-in.
 
 ## Migrating a server that already runs a web server
 

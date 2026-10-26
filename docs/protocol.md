@@ -41,9 +41,9 @@ minimum role it needs (`x-role` in the OpenRPC document). Roles are ordered
 
 | Role | Methods |
 |---|---|
-| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `aws.status`, `auth.whoami` |
+| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `aws.status`, `tunnel.status`, `auth.whoami` |
 | `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger`, `deploys.rollback`, `projects.services.start`/`stop`/`restart` |
-| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`import`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
+| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`import`/`remove`, `tunnel.configure`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
 
 A call below the required role fails with `-32001` and the message
 `forbidden: requires <role>`. A method that is not in the role table is denied
@@ -238,7 +238,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`, `aws`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`, `aws`, `tunnel`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -700,6 +700,35 @@ On the server's own hostnames, on unknown hosts and on the bare IP, `/hooks/`
 is forwarded to the webhook listener (see [Webhooks](#webhooks)) and anything
 else is a plain 404 until a management UI exists. HTTP is redirected to HTTPS.
 
+## Cloudflare Tunnel
+
+Capability `tunnel`. The agent can run a managed `cloudflared` connector (the
+`ki-tunnel` Compose project) that links the server to a remotely managed
+Cloudflare Tunnel; Cloudflare forwards the public hostnames to the edge in
+behind mode. The connector is enabled with `tunnel.enabled` and receives the
+tunnel token as a mounted token file, never in its arguments or environment.
+
+| Method | Params | Result | Role | Transports |
+|---|---|---|---|---|
+| `tunnel.status` | none | `TunnelStatus` | viewer | all |
+| `tunnel.configure` | `token` | `TunnelStatus` | admin | Unix socket, control plane |
+| `tunnel.remove` | none | `TunnelStatus` | admin | Unix socket, control plane |
+
+```json
+{"enabled": true, "state": "connected", "configured": true, "ready": true, "connections": 4,
+ "image": "cloudflare/cloudflared:2026.10.0", "warnings": []}
+```
+
+`state` is `disabled`, `unconfigured` (enabled, no token), `starting` (the
+connector was just started, up to a minute), `connected`, `disconnected` or
+`error` (with `last_error`). `ready` and `connections` come from the
+connector's own `/ready` endpoint. `warnings` lists configuration problems, for
+example an edge that is not in behind mode. The token (1 to 4096 base64
+characters) is never returned or logged; an invalid one is `-32602`. The
+restricted methods answer `-32001` on the agent's HTTP listeners, so a control
+plane can provision a tunnel but a panel session or API token cannot. The
+audit log records the calls without their parameters.
+
 ## Enrollment
 
 Enrollment connects an agent to a control plane without hand-editing its
@@ -969,7 +998,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats","aws"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats","aws","tunnel"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"example-host","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}
