@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,9 @@ func TestRunAgent(t *testing.T) {
 	data := filepath.Join(dir, "data")
 	t.Setenv("KI_DATA_DIR", data)
 	t.Setenv("KI_SOCKET_PATH", filepath.Join(dir, "run", "ki.sock"))
+	// Free loopback ports keep the default 8091/8092 out of the picture.
+	t.Setenv("KI_API_LISTEN", freeLoopbackAddr(t))
+	t.Setenv("KI_API_EDGE_LISTEN", freeLoopbackAddr(t))
 
 	tests := []struct {
 		name     string
@@ -44,7 +48,7 @@ func TestRunAgent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			var logs bytes.Buffer
 			f := tt.f
@@ -77,3 +81,14 @@ func umaskBits() os.FileMode {
 }
 
 func syscallUmask(m int) int { return syscall.Umask(m) }
+
+// freeLoopbackAddr returns a 127.0.0.1:port that was free a moment ago.
+func freeLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	return ln.Addr().String()
+}

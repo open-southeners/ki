@@ -75,10 +75,11 @@ func startAgent(t *testing.T, register func(*rpc.Router)) string {
 	cfg := config.Default()
 	cfg.DataDir = dir
 	cfg.Socket.Path = filepath.Join(dir, "ki.sock")
-	cfg.WebSocket.Listen = ""
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	cfg.API.Listen = "127.0.0.1:0"
+	cfg.API.EdgeListen = "127.0.0.1:0"
 	router := rpc.NewRouter()
 	agent.New().Register(router)
 	if register != nil {

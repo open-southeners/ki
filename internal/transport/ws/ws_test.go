@@ -12,7 +12,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/rpc"
 )
 
-func serve(t *testing.T, opts Options, onConn func(context.Context, rpc.Conn)) *httptest.Server {
+func serve(t *testing.T, opts Options, onConn func(context.Context, rpc.Conn, any)) *httptest.Server {
 	t.Helper()
 	h, err := NewHandler(opts, onConn)
 	if err != nil {
@@ -23,7 +23,7 @@ func serve(t *testing.T, opts Options, onConn func(context.Context, rpc.Conn)) *
 	return s
 }
 
-func echo(ctx context.Context, c rpc.Conn) {
+func echo(ctx context.Context, c rpc.Conn, _ any) {
 	for {
 		m, err := c.Read(ctx)
 		if err != nil {
@@ -35,14 +35,14 @@ func echo(ctx context.Context, c rpc.Conn) {
 	}
 }
 
-func TestEmptyTokenRefused(t *testing.T) {
+func TestNoAuthenticateRefused(t *testing.T) {
 	if _, err := NewHandler(Options{}, echo); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestRoundTrip(t *testing.T) {
-	s := serve(t, Options{Token: "secret"}, echo)
+	s := serve(t, Options{Authenticate: BearerAuth("secret")}, echo)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	c, err := Dial(ctx, s.URL, "secret")
@@ -62,7 +62,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestUnauthorized(t *testing.T) {
-	s := serve(t, Options{Token: "secret"}, echo)
+	s := serve(t, Options{Authenticate: BearerAuth("secret")}, echo)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for name, hdr := range map[string]string{"missing": "", "wrong": "Bearer nope", "scheme": "secret", "prefix": "Bearer secret2"} {
@@ -83,8 +83,42 @@ func TestUnauthorized(t *testing.T) {
 	}
 }
 
+// The value returned by Authenticate reaches onConn, and an Authenticate error
+// is a 401 that never upgrades.
+func TestAuthenticateValuePassedToOnConn(t *testing.T) {
+	got := make(chan any, 1)
+	s := serve(t, Options{Authenticate: func(r *http.Request) (any, error) {
+		if c, err := r.Cookie("sid"); err == nil && c.Value == "good" {
+			return "principal-1", nil
+		}
+		return nil, ErrUnauthorized
+	}}, func(ctx context.Context, c rpc.Conn, authn any) {
+		got <- authn
+		echo(ctx, c, authn)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	c, _, err := DialWith(ctx, s.URL, DialOptions{Header: http.Header{"Cookie": {"sid=good"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if v := <-got; v != "principal-1" {
+		t.Fatalf("authn = %v", v)
+	}
+
+	_, resp, err := DialWith(ctx, s.URL, DialOptions{Header: http.Header{"Cookie": {"sid=bad"}}})
+	if err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %v, %v", resp, err)
+	}
+	if resp.Header.Get("WWW-Authenticate") == "" {
+		t.Fatal("missing WWW-Authenticate")
+	}
+}
+
 func TestReadLimit(t *testing.T) {
-	s := serve(t, Options{Token: "t", ReadLimit: 64}, echo)
+	s := serve(t, Options{Authenticate: BearerAuth("t"), ReadLimit: 64}, echo)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	c, err := Dial(ctx, s.URL, "t")
@@ -103,8 +137,8 @@ func TestReadLimit(t *testing.T) {
 // A peer that never reads never answers pings, so the server must drop it.
 func TestHeartbeatTimeout(t *testing.T) {
 	done := make(chan error, 1)
-	s := serve(t, Options{Token: "t", HeartbeatInterval: 20 * time.Millisecond, HeartbeatTimeout: 100 * time.Millisecond},
-		func(ctx context.Context, c rpc.Conn) {
+	s := serve(t, Options{Authenticate: BearerAuth("t"), HeartbeatInterval: 20 * time.Millisecond, HeartbeatTimeout: 100 * time.Millisecond},
+		func(ctx context.Context, c rpc.Conn, _ any) {
 			_, err := c.Read(ctx)
 			done <- err
 		})
@@ -127,7 +161,7 @@ func TestHeartbeatTimeout(t *testing.T) {
 
 // A peer that keeps reading answers pings and stays connected.
 func TestHeartbeatHealthyPeerSurvives(t *testing.T) {
-	s := serve(t, Options{Token: "t", HeartbeatInterval: 20 * time.Millisecond, HeartbeatTimeout: 100 * time.Millisecond}, echo)
+	s := serve(t, Options{Authenticate: BearerAuth("t"), HeartbeatInterval: 20 * time.Millisecond, HeartbeatTimeout: 100 * time.Millisecond}, echo)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	c, err := Dial(ctx, s.URL, "t")
@@ -147,7 +181,7 @@ func TestHeartbeatHealthyPeerSurvives(t *testing.T) {
 
 func TestDialWithSendsHeadersAndExposesRejection(t *testing.T) {
 	got := make(chan http.Header, 1)
-	s := serve(t, Options{Token: "t"}, echo)
+	s := serve(t, Options{Authenticate: BearerAuth("t")}, echo)
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got <- r.Header.Clone()
 		s.Config.Handler.ServeHTTP(w, r)

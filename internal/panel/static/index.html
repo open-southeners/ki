@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ki-agent</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main>
+  <h1>ki-agent</h1>
+  <p id="msg" role="alert" hidden></p>
+
+  <section id="loading" aria-live="polite"><p>Loading...</p></section>
+
+  <section id="signedin" hidden>
+    <h2>Signed in</h2>
+    <p>Signed in as <strong id="who-name"></strong> (<span id="who-role"></span>).</p>
+    <p>The full panel arrives in a later release.</p>
+    <button type="button" id="logout">Log out</button>
+  </section>
+
+  <form id="login" hidden autocomplete="on">
+    <h2>Log in</h2>
+    <label for="l-user">Username</label>
+    <input id="l-user" name="username" autocomplete="username" required>
+    <label for="l-pass">Password</label>
+    <input id="l-pass" name="password" type="password" autocomplete="current-password" required>
+    <label for="l-code">Authentication code</label>
+    <input id="l-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+    <button type="submit">Log in</button>
+  </form>
+
+  <form id="setup" hidden autocomplete="off">
+    <h2>Set up your account</h2>
+    <p>Account <strong id="s-user"></strong> (<span id="s-role"></span>).</p>
+    <p>Add this secret to your authenticator app, then enter the 6-digit code it shows.</p>
+    <p>Secret: <code id="s-secret"></code></p>
+    <p>Or use this URI: <code id="s-uri"></code></p>
+    <label for="s-pass">Password</label>
+    <input id="s-pass" name="password" type="password" autocomplete="new-password" required>
+    <label for="s-pass2">Confirm password</label>
+    <input id="s-pass2" name="confirm" type="password" autocomplete="new-password" required>
+    <label for="s-code">Authentication code</label>
+    <input id="s-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+    <button type="submit">Finish setup</button>
+  </form>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

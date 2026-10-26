@@ -6,15 +6,18 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/open-southeners/ki-agent/internal/accounts"
 	"github.com/open-southeners/ki-agent/internal/agent"
 	"github.com/open-southeners/ki-agent/internal/compose"
 	"github.com/open-southeners/ki-agent/internal/config"
@@ -25,6 +28,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/enroll"
 	"github.com/open-southeners/ki-agent/internal/enrollment"
 	"github.com/open-southeners/ki-agent/internal/git"
+	"github.com/open-southeners/ki-agent/internal/panel"
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/runtime/docker"
@@ -36,7 +40,7 @@ import (
 )
 
 func newRunCmd(f *flags) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the agent in the foreground until SIGINT or SIGTERM",
 		Args:  cobra.NoArgs,
@@ -47,6 +51,8 @@ func newRunCmd(f *flags) *cobra.Command {
 			return runAgent(ctx, cmd.ErrOrStderr(), f, explicit)
 		},
 	}
+	cmd.Flags().BoolVar(&f.noPanel, "no-panel", false, "do not serve the web panel")
+	return cmd
 }
 
 // runAgent loads config, prepares the data directory and serves until ctx is
@@ -63,6 +69,9 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	if f.logLevel != "" {
 		cfg.LogLevel = f.logLevel
+	}
+	if f.noPanel {
+		cfg.Panel.Enabled = false
 	}
 	level, err := config.ParseLogLevel(cfg.LogLevel)
 	if err != nil {
@@ -85,6 +94,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		}
 	}
 
+	warnLegacyEnv(logger)
 	logger.Info("ki-agent starting",
 		"version", version.Version, "commit", version.Commit, "data_dir", cfg.DataDir)
 
@@ -136,6 +146,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	edgeMgr := edge.New(edge.Options{
 		Config: cfg.Edge, DataDir: cfg.DataDir,
 		Compose: composeRunner, Runtime: rt, Exposures: db, Logger: logger,
+		APIEdgePort: edgeAPIPort(cfg), PanelEnabled: cfg.Panel.Enabled, RPCPublic: cfg.API.PublicTokens,
 	})
 	defer edgeMgr.Close() // leaves the proxy container running, by design
 	projSvc.SetReservedHostnames(edgeMgr.ServerHostnames)
@@ -181,10 +192,39 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return db.DomainOwner(ctx, domain)
 	}
 	edgeHandlers.Register(router)
-	srv, err := server.New(server.Options{Config: cfg, Router: router, Logger: logger})
+	acc := accounts.New(accounts.Options{
+		Store: db, Secret: box, Logger: logger,
+		SetupBase: setupBase(cfg, edgeMgr.ServerHostnames,
+			func() string { return edgeMgr.Status().SelfSigned.Fingerprint }),
+		SessionIdle: cfg.Panel.SessionIdle, SessionMax: cfg.Panel.SessionMax,
+	})
+	acc.Register(router)
+	var panelHandler http.Handler
+	if cfg.Panel.Enabled {
+		panelHandler = panel.New(panel.Options{Accounts: acc, Logger: logger, SessionMax: cfg.Panel.SessionMax})
+	}
+	srv, err := server.New(server.Options{
+		Config: cfg, Router: router, Logger: logger, Auth: acc, HTTP: panelHandler,
+	})
 	if err != nil {
 		return err
 	}
+	// server.New installed the role check as the outermost middleware; the
+	// audit middleware is added after it so denied calls are never recorded.
+	router.Use(acc.AuditMiddleware())
+	acc.OnRevokeUser(srv.CloseUser)
+	acc.OnRevokeToken(srv.CloseToken)
+	// Stopped (and waited for) before the store closes.
+	accCtx, stopAcc := context.WithCancel(ctx)
+	accDone := make(chan struct{})
+	go func() {
+		defer close(accDone)
+		acc.Start(accCtx)
+	}()
+	defer func() {
+		stopAcc()
+		<-accDone
+	}()
 	mgr := controlplane.NewManager(logger)
 	enr := enrollment.New(enrollment.Options{
 		Client:  enroll.NewClient(enroll.Options{TLSConfig: tlsCfg, UserAgent: "ki-agent/" + version.Version}),
@@ -302,4 +342,26 @@ func (w webhookProjects) ByWebhookID(ctx context.Context, id string) (webhooks.H
 	return webhooks.Hook{
 		Slug: h.Slug, Branch: h.Branch, TagPattern: h.TagPattern, Status: h.Status, Secret: h.Secret,
 	}, nil
+}
+
+// edgeAPIPort returns the port of api.edge_listen, or 0 when unset.
+func edgeAPIPort(cfg *config.Config) int {
+	_, p, err := net.SplitHostPort(cfg.API.EdgeListen)
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(p)
+	return n
+}
+
+// warnLegacyEnv warns about KI_WEBSOCKET_* variables, which no longer have an
+// effect.
+func warnLegacyEnv(logger *slog.Logger) {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "KI_WEBSOCKET_") {
+			logger.Warn("environment variable ignored: the websocket section was replaced by api; use KI_API_* "+
+				"(KI_API_LISTEN) and create bearer tokens with `ki-agent tokens create`", "name", name)
+		}
+	}
 }

@@ -39,12 +39,13 @@ func startEnrollAgent(t *testing.T) *enrollAgent {
 	cfg := config.Default()
 	cfg.DataDir = dir
 	cfg.Socket.Path = filepath.Join(dir, "ki.sock")
-	cfg.WebSocket.Listen = ""
 	cfg.ControlPlane.ReconnectMin = 10 * time.Millisecond
 	cfg.ControlPlane.ReconnectMax = 50 * time.Millisecond
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	cfg.API.Listen = "127.0.0.1:0"
+	cfg.API.EdgeListen = "127.0.0.1:0"
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := rpc.NewRouter()
 	ag := agent.New()

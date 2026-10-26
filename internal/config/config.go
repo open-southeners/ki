@@ -53,35 +53,111 @@ type Socket struct {
 	Mode FileMode `yaml:"mode"`
 }
 
-// WebSocket configures the optional authenticated WebSocket listener.
-type WebSocket struct {
-	// Listen is the host:port to listen on; empty disables the listener.
+// API configures the agent's HTTP/WebSocket listeners. Both bind loopback
+// only: Listen serves local scripts directly, EdgeListen is the single
+// upstream the edge proxy routes to.
+type API struct {
+	// Listen is the direct loopback host:port.
 	Listen string `yaml:"listen"`
-	// Path is the HTTP path the JSON-RPC endpoint is served on.
-	Path string `yaml:"path"`
-	// TokenFile holds the bearer token; required when Listen is set.
-	TokenFile         string        `yaml:"token_file"`
+	// EdgeListen is the loopback host:port the edge routes to; it may be empty
+	// only when the edge is disabled.
+	EdgeListen string `yaml:"edge_listen"`
+	// PublicTokens allows bearer tokens on /rpc through the edge listener.
+	PublicTokens      bool          `yaml:"public_tokens"`
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	HeartbeatTimeout  time.Duration `yaml:"heartbeat_timeout"`
 }
 
-// Enabled reports whether the WebSocket listener is configured.
-func (w WebSocket) Enabled() bool { return w.Listen != "" }
+// Panel configures the web panel and its sessions.
+type Panel struct {
+	// Enabled serves /auth/* and the panel page.
+	Enabled bool `yaml:"enabled"`
+	// PublicURL is the https origin used to build setup links; empty derives
+	// it from the edge domain or host.
+	PublicURL string `yaml:"public_url"`
+	// SessionIdle expires a session after this much inactivity.
+	SessionIdle time.Duration `yaml:"session_idle"`
+	// SessionMax is the absolute session lifetime.
+	SessionMax time.Duration `yaml:"session_max"`
+}
 
-// Token reads the bearer token from TokenFile and trims surrounding whitespace.
-func (w WebSocket) Token() (string, error) {
-	if w.TokenFile == "" {
-		return "", errors.New("websocket.token_file is not set")
+// checkLoopbackAddr validates a loopback host:port and returns the port.
+func checkLoopbackAddr(key, addr string) (int, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return 0, fmt.Errorf("%s %q must be host:port", key, addr)
 	}
-	b, err := os.ReadFile(w.TokenFile)
+	n, err := strconv.Atoi(port)
+	if err != nil || !validPort(n) {
+		return 0, fmt.Errorf("%s %q has an invalid port", key, addr)
+	}
+	if !IsLoopbackHost(host) {
+		return 0, fmt.Errorf("%s %q must use a loopback host (127.0.0.1, ::1 or localhost)", key, addr)
+	}
+	return n, nil
+}
+
+func (c *Config) validateAPI() error {
+	a := c.API
+	listenPort, err := checkLoopbackAddr("api.listen", a.Listen)
 	if err != nil {
-		return "", fmt.Errorf("read websocket token file: %w", err)
+		return err
 	}
-	t := strings.TrimSpace(string(b))
-	if t == "" {
-		return "", fmt.Errorf("websocket token file %s is empty", w.TokenFile)
+	if c.Edge.Enabled && a.EdgeListen == "" {
+		return errors.New("api.edge_listen must be set when the edge is enabled")
 	}
-	return t, nil
+	edgePort := 0
+	if a.EdgeListen != "" {
+		if edgePort, err = checkLoopbackAddr("api.edge_listen", a.EdgeListen); err != nil {
+			return err
+		}
+		if edgePort == listenPort {
+			return errors.New("api.listen and api.edge_listen must use different ports")
+		}
+	}
+	if c.Edge.Enabled {
+		hooks := c.Edge.WebhooksPort
+		if c.Webhooks.Enabled() {
+			if _, p, err := net.SplitHostPort(c.Webhooks.Listen); err == nil {
+				if n, err := strconv.Atoi(p); err == nil {
+					hooks = n
+				}
+			}
+		}
+		if listenPort == hooks || edgePort == hooks {
+			return fmt.Errorf("api.listen and api.edge_listen must not use the webhooks port %d", hooks)
+		}
+	}
+	if a.HeartbeatInterval <= 0 {
+		return errors.New("api.heartbeat_interval must be positive")
+	}
+	if a.HeartbeatTimeout <= a.HeartbeatInterval {
+		return errors.New("api.heartbeat_timeout must be greater than api.heartbeat_interval")
+	}
+	return nil
+}
+
+func (p Panel) validate() error {
+	if p.SessionIdle <= 0 {
+		return errors.New("panel.session_idle must be positive")
+	}
+	if p.SessionMax <= 0 {
+		return errors.New("panel.session_max must be positive")
+	}
+	if p.SessionIdle > p.SessionMax {
+		return errors.New("panel.session_idle must not exceed panel.session_max")
+	}
+	if p.PublicURL == "" {
+		return nil
+	}
+	u, err := url.Parse(p.PublicURL)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return fmt.Errorf("panel.public_url %q must be an https URL with a host", p.PublicURL)
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return fmt.Errorf("panel.public_url %q must not include a path, query or fragment", p.PublicURL)
+	}
+	return nil
 }
 
 // ControlPlane configures the optional outbound connection to a control plane.
@@ -297,14 +373,15 @@ func (e Edge) validate() error {
 
 // Config is the full agent configuration.
 type Config struct {
-	DataDir   string    `yaml:"data_dir"`
-	LogLevel  string    `yaml:"log_level"`
-	Socket    Socket    `yaml:"socket"`
-	WebSocket WebSocket `yaml:"websocket"`
-	Docker    Docker    `yaml:"docker"`
-	Webhooks  Webhooks  `yaml:"webhooks"`
-	Deploys   Deploys   `yaml:"deploys"`
-	Edge      Edge      `yaml:"edge"`
+	DataDir  string   `yaml:"data_dir"`
+	LogLevel string   `yaml:"log_level"`
+	Socket   Socket   `yaml:"socket"`
+	API      API      `yaml:"api"`
+	Panel    Panel    `yaml:"panel"`
+	Docker   Docker   `yaml:"docker"`
+	Webhooks Webhooks `yaml:"webhooks"`
+	Deploys  Deploys  `yaml:"deploys"`
+	Edge     Edge     `yaml:"edge"`
 
 	ControlPlane ControlPlane `yaml:"control_plane"`
 }
@@ -319,11 +396,13 @@ func Default() Config {
 		Webhooks: Webhooks{MaxBodyBytes: 5 << 20},
 		Edge:     Edge{Enabled: true, HTTPPort: 80, HTTPSPort: 443, WebhooksPort: 8090},
 		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20},
-		WebSocket: WebSocket{
-			Path:              "/rpc",
+		API: API{
+			Listen:            "127.0.0.1:8091",
+			EdgeListen:        "127.0.0.1:8092",
 			HeartbeatInterval: 15 * time.Second,
 			HeartbeatTimeout:  45 * time.Second,
 		},
+		Panel: Panel{Enabled: true, SessionIdle: 12 * time.Hour, SessionMax: 7 * 24 * time.Hour},
 		ControlPlane: ControlPlane{
 			HeartbeatInterval: 15 * time.Second,
 			HeartbeatTimeout:  45 * time.Second,
@@ -346,6 +425,12 @@ func LoadWithEnv(path string, lookup func(string) (string, bool)) (*Config, erro
 	b, err := os.ReadFile(path)
 	switch {
 	case err == nil:
+		var probe map[string]any
+		if err := yaml.Unmarshal(b, &probe); err == nil {
+			if _, ok := probe["websocket"]; ok {
+				return nil, fmt.Errorf("parse config %s: websocket: replaced by api (api.listen); bearer tokens are now created with `ki-agent tokens create`", path)
+			}
+		}
 		dec := yaml.NewDecoder(strings.NewReader(string(b)))
 		dec.KnownFields(true)
 		if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
@@ -443,14 +528,30 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 	if err := num("KI_DEPLOYS_LOG_MAX_BYTES", &cfg.Deploys.LogMaxBytes); err != nil {
 		return err
 	}
-	str("KI_WEBSOCKET_LISTEN", &cfg.WebSocket.Listen)
-	str("KI_WEBSOCKET_PATH", &cfg.WebSocket.Path)
-	str("KI_WEBSOCKET_TOKEN_FILE", &cfg.WebSocket.TokenFile)
-	if err := dur("KI_WEBSOCKET_HEARTBEAT_INTERVAL", &cfg.WebSocket.HeartbeatInterval); err != nil {
-		return err
+	str("KI_API_LISTEN", &cfg.API.Listen)
+	str("KI_API_EDGE_LISTEN", &cfg.API.EdgeListen)
+	for key, dst := range map[string]*bool{
+		"KI_API_PUBLIC_TOKENS": &cfg.API.PublicTokens,
+		"KI_PANEL_ENABLED":     &cfg.Panel.Enabled,
+	} {
+		if v, ok := lookup(key); ok {
+			b, err := strconv.ParseBool(strings.TrimSpace(v))
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			*dst = b
+		}
 	}
-	if err := dur("KI_WEBSOCKET_HEARTBEAT_TIMEOUT", &cfg.WebSocket.HeartbeatTimeout); err != nil {
-		return err
+	str("KI_PANEL_PUBLIC_URL", &cfg.Panel.PublicURL)
+	for key, dst := range map[string]*time.Duration{
+		"KI_API_HEARTBEAT_INTERVAL": &cfg.API.HeartbeatInterval,
+		"KI_API_HEARTBEAT_TIMEOUT":  &cfg.API.HeartbeatTimeout,
+		"KI_PANEL_SESSION_IDLE":     &cfg.Panel.SessionIdle,
+		"KI_PANEL_SESSION_MAX":      &cfg.Panel.SessionMax,
+	} {
+		if err := dur(key, dst); err != nil {
+			return err
+		}
 	}
 	str("KI_CONTROL_PLANE_URL", &cfg.ControlPlane.URL)
 	str("KI_CONTROL_PLANE_TOKEN_FILE", &cfg.ControlPlane.TokenFile)
@@ -468,9 +569,7 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 	return nil
 }
 
-// Validate checks the configuration for unusable values. A WebSocket listener
-// without a readable, non-empty token file is rejected so the agent never
-// serves an unauthenticated network endpoint.
+// Validate checks the configuration for unusable values.
 func (c *Config) Validate() error {
 	if c.DataDir == "" {
 		return errors.New("data_dir must not be empty")
@@ -511,22 +610,10 @@ func (c *Config) Validate() error {
 			return err
 		}
 	}
-	if !c.WebSocket.Enabled() {
-		return nil
+	if err := c.validateAPI(); err != nil {
+		return err
 	}
-	if !strings.HasPrefix(c.WebSocket.Path, "/") {
-		return fmt.Errorf("websocket.path %q must start with /", c.WebSocket.Path)
-	}
-	if c.WebSocket.HeartbeatInterval <= 0 {
-		return errors.New("websocket.heartbeat_interval must be positive")
-	}
-	if c.WebSocket.HeartbeatTimeout <= c.WebSocket.HeartbeatInterval {
-		return errors.New("websocket.heartbeat_timeout must be greater than websocket.heartbeat_interval")
-	}
-	if _, err := c.WebSocket.Token(); err != nil {
-		return fmt.Errorf("websocket enabled but %w", err)
-	}
-	return nil
+	return c.Panel.validate()
 }
 
 // ParseLogLevel maps a level name (debug, info, warn, error) to a slog level.

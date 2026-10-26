@@ -2,7 +2,7 @@
 # Every key is optional; the values shown are the defaults.
 # Each key can also be overridden by an environment variable named
 # KI_<KEY PATH IN UPPER CASE>, e.g. KI_DATA_DIR, KI_SOCKET_PATH,
-# KI_WEBSOCKET_TOKEN_FILE, KI_DOCKER_HOST, KI_WEBHOOKS_LISTEN,
+# KI_API_LISTEN, KI_PANEL_ENABLED, KI_DOCKER_HOST, KI_WEBHOOKS_LISTEN,
 # KI_DEPLOYS_KEEP, KI_EDGE_DOMAIN, KI_CONTROL_PLANE_URL.
 
 # Directory for all agent state; the only path the agent writes to.
@@ -17,21 +17,33 @@ socket:
   # Octal file mode of the socket.
   mode: 0660
 
-# Authenticated WebSocket listener for remote control planes.
-websocket:
-  # host:port to listen on. Empty (default) disables the listener.
-  # When set, token_file is required: the agent never serves unauthenticated.
-  listen: ""
-  # HTTP path of the JSON-RPC endpoint.
-  path: /rpc
-  # File containing the bearer token clients must send as
-  # "Authorization: Bearer <token>". Must exist and be non-empty.
-  token_file: ""
+# HTTP/WebSocket API. Both listeners bind loopback only; remote access goes
+# through the edge. Bearer tokens are created with `ki-agent tokens create`.
+api:
+  # Direct loopback host:port for local scripts: /rpc (tokens and sessions),
+  # /auth/* and the panel.
+  listen: 127.0.0.1:8091
+  # Loopback host:port the edge routes to. Must differ from listen and from the
+  # webhooks port. May be empty only when the edge is disabled.
+  edge_listen: 127.0.0.1:8092
+  # Accept bearer tokens on /rpc through the edge (sessions always work).
+  public_tokens: false
   # How often the agent pings the client.
   heartbeat_interval: 15s
   # Connections with no pong within this time are closed.
   # Must be greater than heartbeat_interval.
   heartbeat_timeout: 45s
+
+# Web panel (sign-in, setup links). When disabled, /auth/* and / return 404.
+panel:
+  enabled: true
+  # https origin used to build setup links, e.g. https://ki.example.com.
+  # Empty derives it from edge.domain or the host. No path, query or fragment.
+  public_url: ""
+  # Sessions expire after this much inactivity...
+  session_idle: 12h
+  # ...or this long after sign-in, whichever comes first (must be >= idle).
+  session_max: 168h
 
 # Container engine the agent manages containers on. The agent starts even if
 # the engine is down; container methods fail with RuntimeUnavailable until it

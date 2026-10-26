@@ -65,6 +65,8 @@ func newAgentSide(t *testing.T) *agentSide {
 	cfg := config.Default()
 	cfg.DataDir = dir
 	cfg.Socket.Path = filepath.Join(dir, "ki.sock")
+	cfg.API.Listen = "127.0.0.1:0"
+	cfg.API.EdgeListen = "127.0.0.1:0"
 	router := rpc.NewRouter()
 	ag := agent.New()
 	ag.Register(router)
@@ -98,7 +100,7 @@ type fakeCP struct {
 func newFakeCP(t *testing.T, tlsServer bool) *fakeCP {
 	t.Helper()
 	f := &fakeCP{peers: make(chan *rpc.Peer, 16), updates: make(chan rpc.Update, 64)}
-	inner, err := ws.NewHandler(ws.Options{Token: testToken}, func(ctx context.Context, c rpc.Conn) {
+	inner, err := ws.NewHandler(ws.Options{Authenticate: ws.BearerAuth(testToken)}, func(ctx context.Context, c rpc.Conn, _ any) {
 		r := rpc.NewRouter()
 		r.Handle(agent.NotifyHeartbeat, func(_ context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
 			var u rpc.Update

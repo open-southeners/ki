@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/open-southeners/ki-agent/internal/agent"
+	"github.com/open-southeners/ki-agent/internal/auth"
 	"github.com/open-southeners/ki-agent/internal/client"
 	"github.com/open-southeners/ki-agent/internal/config"
 	"github.com/open-southeners/ki-agent/internal/controlplane"
@@ -25,6 +26,20 @@ import (
 )
 
 const wsToken = "ws-listener-token"
+
+// wsAuth accepts wsToken as an admin API token.
+type wsAuth struct{}
+
+func (wsAuth) Token(_ context.Context, b string) (auth.Principal, error) {
+	if b == wsToken {
+		return auth.Principal{Kind: auth.KindToken, ID: 1, Name: "test", Role: auth.RoleAdmin}, nil
+	}
+	return auth.Principal{}, errors.New("unknown token")
+}
+
+func (wsAuth) Session(context.Context, string) (auth.Principal, error) {
+	return auth.Principal{}, errors.New("no sessions")
+}
 
 type syncBuf struct {
 	mu sync.Mutex
@@ -60,15 +75,9 @@ func newEnv(t *testing.T, tweak func(cp *enrolltest.ControlPlane, cfg *config.Co
 	t.Helper()
 	cp := enrolltest.New(t)
 	dir := t.TempDir()
-	tokenFile := filepath.Join(dir, "ws-token")
-	if err := os.WriteFile(tokenFile, []byte(wsToken), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	cfg := config.Default()
 	cfg.DataDir = dir
 	cfg.Socket.Path = filepath.Join(dir, "run", "ki.sock")
-	cfg.WebSocket.Listen = "127.0.0.1:0"
-	cfg.WebSocket.TokenFile = tokenFile
 	cfg.ControlPlane.ReconnectMin = 10 * time.Millisecond
 	cfg.ControlPlane.ReconnectMax = 50 * time.Millisecond
 	if tweak != nil {
@@ -77,13 +86,15 @@ func newEnv(t *testing.T, tweak func(cp *enrolltest.ControlPlane, cfg *config.Co
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	cfg.API.Listen = "127.0.0.1:0"
+	cfg.API.EdgeListen = "127.0.0.1:0"
 
 	logs := &syncBuf{}
 	log := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	router := rpc.NewRouter()
 	ag := agent.New()
 	ag.Register(router)
-	srv, err := server.New(server.Options{Config: &cfg, Router: router, Logger: log})
+	srv, err := server.New(server.Options{Config: &cfg, Router: router, Logger: log, Auth: wsAuth{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +130,7 @@ func newEnv(t *testing.T, tweak func(cp *enrolltest.ControlPlane, cfg *config.Co
 	})
 	return &env{
 		cp: cp, dir: dir, sock: cfg.Socket.Path, h: h, mgr: mgr, logs: logs,
-		wsURL: "ws://" + srv.WebSocketAddr() + cfg.WebSocket.Path,
+		wsURL: "ws://" + srv.APIAddr() + server.RPCPath,
 	}
 }
 

@@ -1,5 +1,5 @@
-// Package ws carries JSON-RPC over WebSocket text messages, with bearer-token
-// authentication and a ping/pong heartbeat on either side.
+// Package ws carries JSON-RPC over WebSocket text messages, with pluggable
+// request authentication and a ping/pong heartbeat on either side.
 package ws
 
 import (
@@ -25,8 +25,10 @@ const (
 
 // Options configures NewHandler.
 type Options struct {
-	// Token is the required bearer token. It must be non-empty.
-	Token string
+	// Authenticate vets the upgrade request. A non-nil error refuses it with
+	// 401; the returned value is handed to the connection callback. Required.
+	// The library's same-origin check on the Origin header stays active.
+	Authenticate func(r *http.Request) (any, error)
 	// HeartbeatInterval is the time between pings (default 15s).
 	HeartbeatInterval time.Duration
 	// HeartbeatTimeout is how long a pong may be late before the connection is
@@ -36,11 +38,28 @@ type Options struct {
 	ReadLimit int64
 }
 
-// ErrEmptyToken is returned by NewHandler when no token is configured.
-var ErrEmptyToken = errors.New("ws: a non-empty bearer token is required")
+// ErrNoAuthenticate is returned by NewHandler when Options.Authenticate is nil.
+var ErrNoAuthenticate = errors.New("ws: an Authenticate function is required")
+
+// ErrUnauthorized is the error BearerAuth returns for a missing or wrong token.
+var ErrUnauthorized = errors.New("ws: unauthorized")
+
+// BearerAuth returns an Authenticate function accepting exactly the given
+// non-empty bearer token (compared in constant time) and yielding nil.
+func BearerAuth(token string) func(r *http.Request) (any, error) {
+	want := []byte(token)
+	return func(r *http.Request) (any, error) {
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if len(want) == 0 || !ok || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+			return nil, ErrUnauthorized
+		}
+		return nil, nil
+	}
+}
 
 // NewHandler returns an http.Handler that authenticates the request, upgrades it
-// to a WebSocket and invokes onConn with the connection. onConn runs on the
+// to a WebSocket and invokes onConn with the connection and the value returned
+// by Options.Authenticate. onConn runs on the
 // handler goroutine; the connection is closed when it returns, and ctx is
 // cancelled when the connection is closed or the heartbeat fails.
 //
@@ -48,9 +67,9 @@ var ErrEmptyToken = errors.New("ws: a non-empty bearer token is required")
 // pong arrives within HeartbeatTimeout. The WebSocket library only processes
 // pongs while some goroutine is calling Read, so onConn (or the rpc.Peer it
 // creates) must keep reading from the Conn for the lifetime of the connection.
-func NewHandler(opts Options, onConn func(ctx context.Context, c rpc.Conn)) (http.Handler, error) {
-	if opts.Token == "" {
-		return nil, ErrEmptyToken
+func NewHandler(opts Options, onConn func(ctx context.Context, c rpc.Conn, authn any)) (http.Handler, error) {
+	if opts.Authenticate == nil {
+		return nil, ErrNoAuthenticate
 	}
 	if opts.HeartbeatInterval <= 0 {
 		opts.HeartbeatInterval = DefaultHeartbeatInterval
@@ -61,10 +80,9 @@ func NewHandler(opts Options, onConn func(ctx context.Context, c rpc.Conn)) (htt
 	if opts.ReadLimit <= 0 {
 		opts.ReadLimit = DefaultReadLimit
 	}
-	want := []byte(opts.Token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+		authn, err := opts.Authenticate(r)
+		if err != nil {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="ki-agent"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -79,7 +97,7 @@ func NewHandler(opts Options, onConn func(ctx context.Context, c rpc.Conn)) (htt
 		c := &conn{c: wc}
 		go heartbeat(ctx, wc, opts.HeartbeatInterval, opts.HeartbeatTimeout)
 		defer c.Close()
-		onConn(ctx, c)
+		onConn(ctx, c, authn)
 	}), nil
 }
 

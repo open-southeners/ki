@@ -101,7 +101,7 @@ func (c *ControlPlane) WSURL(path string) string {
 // as a control plane would.
 func (c *ControlPlane) AddEndpoint(t testing.TB, path, token string) {
 	t.Helper()
-	h, err := ws.NewHandler(ws.Options{Token: token}, func(ctx context.Context, conn rpc.Conn) {
+	h, err := ws.NewHandler(ws.Options{Authenticate: ws.BearerAuth(token)}, func(ctx context.Context, conn rpc.Conn, _ any) {
 		c.mu.Lock()
 		c.live[path]++
 		c.mu.Unlock()

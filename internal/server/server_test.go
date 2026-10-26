@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/open-southeners/ki-agent/api"
 	"github.com/open-southeners/ki-agent/internal/agent"
+	"github.com/open-southeners/ki-agent/internal/auth"
 	"github.com/open-southeners/ki-agent/internal/config"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/transport/unixsock"
@@ -24,13 +24,22 @@ import (
 
 const testToken = "s3cret-token"
 
+func init() {
+	// Methods registered by tests are not in the production role table.
+	auth.MethodRoles["test.transport"] = auth.RoleViewer
+	auth.MethodRoles["test.whoami"] = auth.RoleViewer
+	auth.MethodRoles["test.admin"] = auth.RoleAdmin
+}
+
 type harness struct {
-	sock   string
-	wsURL  string
-	cancel context.CancelFunc
-	done   chan struct{}
-	err    error
-	logs   *syncBuf
+	srv     *Server
+	sock    string
+	wsURL   string
+	edgeURL string // empty unless the edge listener is enabled
+	cancel  context.CancelFunc
+	done    chan struct{}
+	err     error
+	logs    *syncBuf
 }
 
 type syncBuf struct {
@@ -50,35 +59,89 @@ func (b *syncBuf) String() string {
 	return b.sb.String()
 }
 
+// stubAuth is an Authenticator over fixed credential tables.
+type stubAuth struct {
+	tokens   map[string]auth.Principal
+	sessions map[string]auth.Principal
+}
+
+func (a *stubAuth) Token(_ context.Context, b string) (auth.Principal, error) {
+	if pr, ok := a.tokens[b]; ok {
+		return pr, nil
+	}
+	return auth.Principal{}, errors.New("unknown token")
+}
+
+func (a *stubAuth) Session(_ context.Context, id string) (auth.Principal, error) {
+	if pr, ok := a.sessions[id]; ok {
+		return pr, nil
+	}
+	return auth.Principal{}, errors.New("unknown session")
+}
+
+// newStubAuth knows the admin token testToken and the session "sess".
+func newStubAuth() *stubAuth {
+	return &stubAuth{
+		tokens: map[string]auth.Principal{
+			testToken: {Kind: auth.KindToken, ID: 1, Name: "admin-token", Role: auth.RoleAdmin},
+		},
+		sessions: map[string]auth.Principal{
+			"sess": {Kind: auth.KindUser, ID: 7, Name: "alice", Role: auth.RoleAdmin},
+		},
+	}
+}
+
+// testOpts tunes the server started by startCfg.
+type testOpts struct {
+	register     func(*rpc.Router)
+	edge         bool
+	publicTokens bool
+	noPanel      bool
+	auth         Authenticator // default newStubAuth(); use noAuth for nil
+	noAuth       bool
+	http         http.Handler
+}
+
 func start(t *testing.T) *harness {
 	t.Helper()
-	return startWith(t, nil)
+	return startCfg(t, testOpts{})
 }
 
 // startWith is start with extra handlers registered on the router.
 func startWith(t *testing.T, register func(*rpc.Router)) *harness {
 	t.Helper()
+	return startCfg(t, testOpts{register: register})
+}
+
+func startCfg(t *testing.T, o testOpts) *harness {
+	t.Helper()
 	dir := t.TempDir()
-	tokenFile := filepath.Join(dir, "token")
-	if err := os.WriteFile(tokenFile, []byte(testToken+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	cfg := config.Default()
 	cfg.DataDir = dir
 	cfg.Socket.Path = filepath.Join(dir, "run", "ki.sock") // parent must be created
-	cfg.WebSocket.Listen = "127.0.0.1:0"
-	cfg.WebSocket.TokenFile = tokenFile
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	cfg.API.Listen = "127.0.0.1:0"
+	cfg.API.EdgeListen = "127.0.0.1:0"
+	cfg.Edge.Enabled = o.edge
+	cfg.API.PublicTokens = o.publicTokens
+	cfg.Panel.Enabled = !o.noPanel
 
 	router := rpc.NewRouter()
 	agent.New().Register(router)
-	if register != nil {
-		register(router)
+	if o.register != nil {
+		o.register(router)
 	}
 	logs := &syncBuf{}
-	srv, err := New(Options{Config: &cfg, Router: router, Logger: slog.New(slog.NewJSONHandler(logs, nil))})
+	opts := Options{Config: &cfg, Router: router, Logger: slog.New(slog.NewJSONHandler(logs, nil)), HTTP: o.http}
+	if !o.noAuth {
+		opts.Auth = o.auth
+		if opts.Auth == nil {
+			opts.Auth = newStubAuth()
+		}
+	}
+	srv, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,11 +150,15 @@ func startWith(t *testing.T, register func(*rpc.Router)) *harness {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &harness{
+		srv:    srv,
 		sock:   cfg.Socket.Path,
-		wsURL:  "ws://" + srv.WebSocketAddr() + cfg.WebSocket.Path,
+		wsURL:  "ws://" + srv.APIAddr() + RPCPath,
 		cancel: cancel,
 		done:   make(chan struct{}),
 		logs:   logs,
+	}
+	if o.edge {
+		h.edgeURL = "ws://" + srv.EdgeAPIAddr() + RPCPath
 	}
 	go func() { h.err = srv.Serve(ctx); close(h.done) }()
 	t.Cleanup(func() {
@@ -366,15 +433,6 @@ func TestGracefulShutdownWithOpenSubscription(t *testing.T) {
 	}
 	if strings.Contains(logs, testToken) {
 		t.Fatal("token leaked into logs")
-	}
-}
-
-func TestNewRejectsMissingToken(t *testing.T) {
-	cfg := config.Default()
-	cfg.WebSocket.Listen = "127.0.0.1:0"
-	_, err := New(Options{Config: &cfg, Router: rpc.NewRouter(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	if err == nil {
-		t.Fatal("expected error for websocket without token file")
 	}
 }
 

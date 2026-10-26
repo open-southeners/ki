@@ -33,8 +33,10 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 		t.Fatalf("got %+v, want defaults %+v", *cfg, Default())
 	}
 	d := Default()
-	if d.DataDir != "/var/lib/ki-agent" || d.Socket.Mode != 0o660 || d.WebSocket.Path != "/rpc" ||
-		d.WebSocket.HeartbeatInterval != 15*time.Second || d.WebSocket.HeartbeatTimeout != 45*time.Second ||
+	if d.DataDir != "/var/lib/ki-agent" || d.Socket.Mode != 0o660 || d.API.Listen != "127.0.0.1:8091" ||
+		d.API.EdgeListen != "127.0.0.1:8092" || d.API.PublicTokens || d.API.HeartbeatInterval != 15*time.Second ||
+		d.API.HeartbeatTimeout != 45*time.Second || !d.Panel.Enabled || d.Panel.PublicURL != "" ||
+		d.Panel.SessionIdle != 12*time.Hour || d.Panel.SessionMax != 168*time.Hour ||
 		d.Docker.Host != "unix:///var/run/docker.sock" {
 		t.Fatalf("unexpected defaults: %+v", d)
 	}
@@ -42,18 +44,18 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 
 func TestLoadFileAndEnv(t *testing.T) {
 	dir := t.TempDir()
-	tok := write(t, dir, "token", "  s3cret\n")
 	yml := write(t, dir, "c.yaml", `
 data_dir: /tmp/data
 log_level: debug
 socket:
   path: /tmp/ki.sock
   mode: 0600
-websocket:
+api:
   listen: 127.0.0.1:9000
-  token_file: `+tok+`
   heartbeat_interval: 5s
   heartbeat_timeout: 20s
+panel:
+  public_url: https://ki.example.com/
 docker:
   host: tcp://dind:2375
 `)
@@ -64,19 +66,25 @@ docker:
 	}{
 		{"file values", nil, func(c *Config) bool {
 			return c.DataDir == "/tmp/data" && c.LogLevel == "debug" && c.Socket.Mode == 0o600 &&
-				c.WebSocket.Listen == "127.0.0.1:9000" && c.WebSocket.HeartbeatInterval == 5*time.Second &&
-				c.WebSocket.Path == "/rpc" && c.Docker.Host == "tcp://dind:2375"
+				c.API.Listen == "127.0.0.1:9000" && c.API.HeartbeatInterval == 5*time.Second &&
+				c.Panel.PublicURL == "https://ki.example.com/" && c.Docker.Host == "tcp://dind:2375"
 		}},
 		{"env overrides file", map[string]string{
 			"KI_DATA_DIR": "/srv/x", "KI_LOG_LEVEL": "warn", "KI_SOCKET_MODE": "0640",
-			"KI_SOCKET_PATH": "/run/x.sock", "KI_WEBSOCKET_PATH": "/ws",
-			"KI_DOCKER_HOST":                  "unix:///run/docker.sock",
-			"KI_WEBSOCKET_HEARTBEAT_INTERVAL": "1s", "KI_WEBSOCKET_HEARTBEAT_TIMEOUT": "3s",
+			"KI_SOCKET_PATH": "/run/x.sock", "KI_API_LISTEN": "127.0.0.1:9100",
+			"KI_API_EDGE_LISTEN": "[::1]:9101", "KI_API_PUBLIC_TOKENS": "true",
+			"KI_DOCKER_HOST":            "unix:///run/docker.sock",
+			"KI_API_HEARTBEAT_INTERVAL": "1s", "KI_API_HEARTBEAT_TIMEOUT": "3s",
+			"KI_PANEL_ENABLED": "false", "KI_PANEL_PUBLIC_URL": "https://p.example.com",
+			"KI_PANEL_SESSION_IDLE": "1h", "KI_PANEL_SESSION_MAX": "2h",
 		}, func(c *Config) bool {
 			return c.DataDir == "/srv/x" && c.LogLevel == "warn" && c.Socket.Mode == 0o640 &&
-				c.Socket.Path == "/run/x.sock" && c.WebSocket.Path == "/ws" &&
+				c.Socket.Path == "/run/x.sock" && c.API.Listen == "127.0.0.1:9100" &&
+				c.API.EdgeListen == "[::1]:9101" && c.API.PublicTokens &&
 				c.Docker.Host == "unix:///run/docker.sock" &&
-				c.WebSocket.HeartbeatInterval == time.Second && c.WebSocket.HeartbeatTimeout == 3*time.Second
+				c.API.HeartbeatInterval == time.Second && c.API.HeartbeatTimeout == 3*time.Second &&
+				!c.Panel.Enabled && c.Panel.PublicURL == "https://p.example.com" &&
+				c.Panel.SessionIdle == time.Hour && c.Panel.SessionMax == 2*time.Hour
 		}},
 	}
 	for _, tt := range tests {
@@ -94,8 +102,6 @@ docker:
 
 func TestLoadErrors(t *testing.T) {
 	dir := t.TempDir()
-	empty := write(t, dir, "empty-token", " \n")
-	good := write(t, dir, "token", "abc")
 	tests := []struct {
 		name string
 		yaml string
@@ -107,14 +113,31 @@ func TestLoadErrors(t *testing.T) {
 		{"bad log level", "log_level: loud\n", nil, "invalid log_level"},
 		{"bad mode", "socket:\n  mode: 0999\n", nil, "invalid file mode"},
 		{"bad env mode", "", map[string]string{"KI_SOCKET_MODE": "rw"}, "KI_SOCKET_MODE"},
-		{"bad env duration", "", map[string]string{"KI_WEBSOCKET_HEARTBEAT_TIMEOUT": "x"}, "KI_WEBSOCKET_HEARTBEAT_TIMEOUT"},
+		{"bad env duration", "", map[string]string{"KI_API_HEARTBEAT_TIMEOUT": "x"}, "KI_API_HEARTBEAT_TIMEOUT"},
 		{"empty docker host", "docker:\n  host: \"\"\n", nil, "docker.host"},
-		{"ws without token file", "websocket:\n  listen: :9000\n", nil, "token_file is not set"},
-		{"ws missing token file", "websocket:\n  listen: :9000\n  token_file: " + filepath.Join(dir, "none") + "\n", nil, "read websocket token file"},
-		{"ws empty token", "websocket:\n  listen: :9000\n  token_file: " + empty + "\n", nil, "is empty"},
-		{"ws bad path", "websocket:\n  listen: :9000\n  path: rpc\n  token_file: " + good + "\n", nil, "must start with /"},
-		{"ws timeout <= interval", "websocket:\n  listen: :9000\n  token_file: " + good + "\n  heartbeat_interval: 10s\n  heartbeat_timeout: 10s\n", nil, "heartbeat_timeout"},
-		{"ws via env no token", "", map[string]string{"KI_WEBSOCKET_LISTEN": ":9000"}, "token_file is not set"},
+		{"old websocket section", "websocket:\n  listen: 127.0.0.1:9000\n  token_file: /x\n", nil, "websocket: replaced by api (api.listen); bearer tokens are now created with `ki-agent tokens create`"},
+		{"old websocket empty key", "websocket:\n", nil, "websocket: replaced by api"},
+		{"api listen empty", "api:\n  listen: \"\"\n", nil, "api.listen"},
+		{"api listen all interfaces", "api:\n  listen: 0.0.0.0:8091\n", nil, "loopback"},
+		{"api listen no host", "api:\n  listen: :8091\n", nil, "loopback"},
+		{"api listen public ip", "api:\n  listen: 10.0.0.1:8091\n", nil, "loopback"},
+		{"api listen bad port", "api:\n  listen: 127.0.0.1:0\n", nil, "invalid port"},
+		{"api edge_listen non-loopback", "api:\n  edge_listen: 0.0.0.0:8092\n", nil, "api.edge_listen"},
+		{"api edge_listen empty with edge", "api:\n  edge_listen: \"\"\n", nil, "api.edge_listen must be set"},
+		{"api same ports", "api:\n  listen: 127.0.0.1:8092\n", nil, "different ports"},
+		{"api listen = edge.webhooks_port", "api:\n  listen: 127.0.0.1:8090\n", nil, "webhooks port"},
+		{"api edge_listen = webhooks.listen port", "webhooks:\n  listen: 127.0.0.1:8092\n", nil, "webhooks port"},
+		{"api interval <= 0", "api:\n  heartbeat_interval: 0s\n", nil, "api.heartbeat_interval"},
+		{"api timeout <= interval", "api:\n  heartbeat_interval: 10s\n  heartbeat_timeout: 10s\n", nil, "api.heartbeat_timeout"},
+		{"panel idle > max", "panel:\n  session_idle: 2h\n  session_max: 1h\n", nil, "panel.session_idle"},
+		{"panel idle zero", "panel:\n  session_idle: 0s\n", nil, "panel.session_idle"},
+		{"panel max zero", "panel:\n  session_max: 0s\n", nil, "panel.session_max"},
+		{"panel http url", "panel:\n  public_url: http://ki.example.com\n", nil, "https"},
+		{"panel url path", "panel:\n  public_url: https://ki.example.com/panel\n", nil, "path"},
+		{"panel url query", "panel:\n  public_url: https://ki.example.com?a=1\n", nil, "query"},
+		{"panel url fragment", "panel:\n  public_url: https://ki.example.com#x\n", nil, "fragment"},
+		{"panel url no host", "panel:\n  public_url: https://\n", nil, "host"},
+		{"bad env bool", "", map[string]string{"KI_PANEL_ENABLED": "maybe"}, "KI_PANEL_ENABLED"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -127,12 +150,15 @@ func TestLoadErrors(t *testing.T) {
 	}
 }
 
-func TestToken(t *testing.T) {
-	dir := t.TempDir()
-	w := WebSocket{TokenFile: write(t, dir, "t", "\n tok123 \n")}
-	got, err := w.Token()
-	if err != nil || got != "tok123" {
-		t.Fatalf("Token() = %q, %v", got, err)
+func TestAPIEdgeDisabled(t *testing.T) {
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_EDGE_ENABLED": "false", "KI_API_EDGE_LISTEN": "", "KI_API_LISTEN": "localhost:8090",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.API.EdgeListen != "" || cfg.API.Listen != "localhost:8090" {
+		t.Fatalf("api = %+v", cfg.API)
 	}
 }
 
