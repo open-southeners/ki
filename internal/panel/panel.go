@@ -5,14 +5,18 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -22,12 +26,26 @@ import (
 	"github.com/open-southeners/ki-agent/internal/server"
 )
 
+// staticFS is the minimal built-in page, served when the web app is not built.
+//
 //go:embed static
 var staticFS embed.FS
 
+// distFS holds the built web app (web/, `bun run build`). Only the committed
+// placeholders are present in a checkout that has not built it.
+//
+//go:embed dist
+var distFS embed.FS
+
 const (
 	maxBody = 16 << 10
-	csp     = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	// cspStatic covers the minimal built-in page.
+	cspStatic = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	// cspSPA covers the web app. style-src allows inline styles only because
+	// Radix/shadcn position popovers with style attributes; scripts are never
+	// inline. data: images are for the TOTP QR code.
+	cspSPA = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 )
 
 // Accounts is the part of accounts.Service the panel needs.
@@ -47,6 +65,10 @@ type Options struct {
 	// zero the cookie is a browser-session cookie (the server still enforces
 	// the idle and absolute session limits).
 	SessionMax time.Duration
+	// Assets is the built web app (index.html at its root). When nil the
+	// embedded build is used; when it has no index.html the minimal built-in
+	// page is served instead. Tests inject their own.
+	Assets fs.FS
 }
 
 type handler struct {
@@ -54,13 +76,27 @@ type handler struct {
 	log  *slog.Logger
 	max  time.Duration
 	page map[string][]byte
+	// assets is non-nil in SPA mode.
+	assets fs.FS
+	csp    string
 }
 
 // New returns the panel http.Handler.
 func New(o Options) http.Handler {
-	h := &handler{acc: o.Accounts, log: o.Logger, max: o.SessionMax, page: map[string][]byte{}}
+	h := &handler{acc: o.Accounts, log: o.Logger, max: o.SessionMax, page: map[string][]byte{}, csp: cspStatic}
 	if h.log == nil {
 		h.log = slog.Default()
+	}
+	assets := o.Assets
+	if assets == nil {
+		if sub, err := fs.Sub(distFS, "dist"); err == nil {
+			assets = sub
+		}
+	}
+	if assets != nil {
+		if st, err := fs.Stat(assets, "index.html"); err == nil && !st.IsDir() {
+			h.assets, h.csp = assets, cspSPA
+		}
 	}
 	for _, n := range []string{"index.html", "app.js", "app.css"} {
 		b, err := staticFS.ReadFile("static/" + n)
@@ -75,12 +111,16 @@ func New(o Options) http.Handler {
 	mux.HandleFunc("/auth/login", h.post(h.login))
 	mux.HandleFunc("/auth/logout", h.post(h.logout))
 	mux.HandleFunc("/auth/session", h.session)
-	mux.HandleFunc("/", h.static)
-	return secure(mux)
+	if h.assets != nil {
+		mux.HandleFunc("/", h.spa)
+	} else {
+		mux.HandleFunc("/", h.static)
+	}
+	return secure(mux, h.csp)
 }
 
 // secure sets the headers every response carries.
-func secure(next http.Handler) http.Handler {
+func secure(next http.Handler, csp string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
 		hd.Set("Content-Security-Policy", csp)
@@ -125,6 +165,94 @@ func (h *handler) static(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(h.page[name])
+}
+
+// spa serves the built web app: real files by path, index.html for every
+// other route-like path (client-side routing). Paths owned by other handlers
+// (/auth/*, /rpc, /hooks/*) and unknown asset paths are 404.
+func (h *handler) spa(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	p := path.Clean("/" + r.URL.Path)
+	if reserved(p) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	name := strings.TrimPrefix(p, "/")
+	if name != "" && name != "index.html" {
+		if !fs.ValidPath(name) || hiddenAsset(name) {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		if st, err := fs.Stat(h.assets, name); err == nil && !st.IsDir() {
+			h.serveFile(w, r, name)
+			return
+		}
+		// Anything that looks like a file is a missing asset, not a route.
+		if name == "assets" || strings.HasPrefix(name, "assets/") || path.Ext(name) != "" {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+	}
+	h.serveFile(w, r, "index.html")
+}
+
+// reserved reports paths served by other handlers; the app never answers them.
+func reserved(p string) bool {
+	for _, r := range []string{"/rpc", "/auth", "/hooks"} {
+		if p == r || strings.HasPrefix(p, r+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// hiddenAsset reports files in the dist directory that are not part of the app.
+func hiddenAsset(name string) bool {
+	return name == "README.md" || name == ".keep"
+}
+
+func (h *handler) serveFile(w http.ResponseWriter, r *http.Request, name string) {
+	b, err := fs.ReadFile(h.assets, name)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	hd := w.Header()
+	hd.Set("Content-Type", contentType(name))
+	if strings.HasPrefix(name, "assets/") {
+		// Vite names these by content hash.
+		hd.Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		hd.Set("Cache-Control", "no-cache")
+	}
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
+}
+
+func contentType(name string) string {
+	switch path.Ext(name) {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".js", ".mjs":
+		return "text/javascript; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	case ".woff2":
+		return "font/woff2"
+	case ".woff":
+		return "font/woff"
+	case ".json", ".webmanifest":
+		return "application/json"
+	}
+	if t := mime.TypeByExtension(path.Ext(name)); t != "" {
+		return t
+	}
+	return "application/octet-stream"
 }
 
 // post wraps a POST endpoint with the CSRF checks: a same-host Origin header

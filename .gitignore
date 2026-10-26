@@ -13,3 +13,9 @@
 *.swp
 *~
 .DS_Store
+
+# Web panel (built by `cd web && bun run build`)
+/web/node_modules/
+/internal/panel/dist/*
+!/internal/panel/dist/.keep
+!/internal/panel/dist/README.md

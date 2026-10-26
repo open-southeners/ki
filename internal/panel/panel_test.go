@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/open-southeners/ki-agent/internal/accounts"
@@ -58,8 +59,9 @@ func (s *stub) SetupFinish(_ context.Context, r accounts.SetupFinishRequest) (st
 	return "sid1", user, nil
 }
 
+// newH builds the handler in static mode (no web build), whatever is in dist.
 func newH(s *stub, max time.Duration) http.Handler {
-	return New(Options{Accounts: s, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), SessionMax: max})
+	return New(Options{Accounts: s, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), SessionMax: max, Assets: fstest.MapFS{}})
 }
 
 func do(h http.Handler, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
@@ -288,7 +290,7 @@ func TestPageAndHeaders(t *testing.T) {
 	for _, p := range []string{"/", "/nope", "/auth/session"} {
 		w := do(h, "GET", p, "", nil)
 		want := map[string]string{
-			"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+			"Content-Security-Policy": cspStatic,
 			"X-Content-Type-Options":  "nosniff",
 			"Referrer-Policy":         "no-referrer",
 			"X-Frame-Options":         "DENY",
