@@ -13,6 +13,7 @@ type flags struct {
 	configPath string
 	logLevel   string
 	socket     string
+	noPanel    bool
 }
 
 func newRootCmd() *cobra.Command {
@@ -41,6 +42,10 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newDeploysCmd(&f))
 	cmd.AddCommand(newEnrollCmd(&f))
 	cmd.AddCommand(newUnenrollCmd(&f))
+	cmd.AddCommand(newUsersCmd(&f))
+	cmd.AddCommand(newTokensCmd(&f))
+	cmd.AddCommand(newPanelCmd(&f))
+	cmd.AddCommand(newAuditCmd(&f))
 
 	return cmd
 }
