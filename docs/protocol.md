@@ -41,7 +41,7 @@ minimum role it needs (`x-role` in the OpenRPC document). Roles are ordered
 
 | Role | Methods |
 |---|---|
-| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `auth.whoami` |
+| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `auth.whoami` |
 | `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger` |
 | `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
 
@@ -229,7 +229,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -751,6 +751,71 @@ socket"). This is what `ki-agent enroll` and `unenroll` use.
 `agent.info` reports where the active control plane came from in
 `control_plane.source`: `"config"` or `"enrollment"` (absent while disabled).
 
+## Monitoring
+
+Capability `stats`. All six methods are `viewer` methods. The agent samples
+the host every `monitor.host_interval` (default 15 s) and the running
+ki-managed containers (plus the edge proxy) every `monitor.container_interval`
+(default 30 s). While subscriptions exist the interval is the smallest one
+requested, but never above the configured base. Rates (`cpu.percent`,
+`cpu_percent` and every `*_per_s` field) are computed by the agent from
+consecutive samples and are `null` in the first sample after the agent starts,
+for a container's first sample, and right after a container restarted.
+`time` in a sample is when the agent took it. History is in memory only: one
+sample per `monitor.history_resolution` (default 15 s) for `monitor.history`
+(default 1 h), per host and per container; it is empty after an agent restart.
+
+### Host
+
+`host.stats {history?, per_core?}` returns `{"current": HostSample | null,
+"history"?: [HostSample]}` (oldest first). It never waits for the sampler,
+so `current` is `null` in the first moments after start. With `per_core: true`
+`cpu.per_core` is included and the call may wait up to 2 s for a sample that
+carries it.
+
+`host.subscribe {interval_ms?, per_core?}` returns `{"subscription": id,
+"interval_ms": n}`; `interval_ms` (default 2000) is clamped to 1000..60000 and
+the result reports the value applied. It is a snapshot subscription: each
+`host.update` has `data: {"sample": HostSample}`, the first one as soon as a
+sample exists, and a slow consumer receives the latest one. `host.unsubscribe
+{subscription}` ends it (`-32004` for an unknown id).
+
+A `HostSample` holds `time`, `cpu {percent, cores, per_core?}`, `load {1, 5,
+15}`, `memory {total, used, available, percent}`, `swap {total, used,
+percent}`, `disks [{path, device, fstype, total, used, free, percent,
+inodes_percent}]` (the filesystems holding `/` and the data directory plus
+`monitor.disk_paths`, one entry per device), `disk_io` (bytes and operations
+per second, summed over whole block devices), `network` (bytes per second
+summed over the interfaces except `lo`, `veth*`, `docker*`, `br-*`, `cni*`,
+`flannel*` and `virbr*`, plus the same per interface) and `uptime_s`. Sizes are
+bytes. When the agent runs in a container the figures are that container's
+view of the host unless the host's `/proc` and `/sys` are mounted and
+`HOST_PROC` / `HOST_SYS` are set (see the README).
+
+### Containers
+
+`containers.stats {project?, id?, history?}` returns `{"available": bool,
+"containers": [{"current": ContainerSample | null, "history"?: [...]}]}`.
+`id` is a full container id or a prefix of at least 12 characters of a
+**managed** container; an unmanaged or unknown id answers `-32006`, as in
+`containers.inspect`. `available` is `false` (with an empty list, not an
+error) when the container engine cannot be reached.
+
+`containers.stats.subscribe {project?, id?, interval_ms?}` behaves like
+`host.subscribe` (default 5000, clamped to 2000..60000, result with
+`interval_ms`); each `containers.stats.update` has `data: {"available": bool,
+"containers": [ContainerSample]}`. An unmanaged id is `-32006` and an
+unreachable engine `-32008` at subscribe time. `containers.stats.unsubscribe
+{subscription}` ends it.
+
+A `ContainerSample` holds `time`, `id`, `name`, `project`, `service`,
+`component`, `cpu_percent` (of one core, so it can exceed 100), `memory
+{usage, limit, percent}` (usage excludes reclaimable file cache, as `docker
+stats` reports it; `percent` is `null` without a limit), `network
+{rx_bytes_per_s, tx_bytes_per_s}`, `block_io {read_bytes_per_s,
+write_bytes_per_s}` and `pids`. Series for containers that disappeared are
+dropped after one history length.
+
 ## Errors
 
 Errors are JSON-RPC error objects `{code, message, data?}`.
@@ -806,7 +871,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}

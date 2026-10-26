@@ -91,6 +91,51 @@ only; see [Users, roles and tokens](#users-roles-and-tokens). `docker.host` (env
 `unix:///var/run/docker.sock`) selects the container engine; the agent starts
 even if the engine is down.
 
+## Monitoring
+
+The agent measures the host and the containers it manages and keeps the last
+hour in memory (nothing is written to disk, so history starts empty after a
+restart).
+
+```sh
+ki-agent stats                       # host summary plus the 10 busiest containers
+ki-agent stats --watch --interval 2s # live view (needs a few seconds for rates)
+ki-agent stats --json
+ki-agent containers stats --project app [--watch] [--json]
+```
+
+What is measured:
+
+- **Host**: CPU percent (all cores, optionally per core), load averages,
+  memory and swap, the disks holding `/` and the data directory (plus
+  `monitor.disk_paths`) with space and inode use, disk throughput summed over
+  whole block devices, network throughput summed over the physical and VPN
+  interfaces (loopback, `veth*`, `docker*`, `br-*` and the like are left out),
+  and uptime.
+- **Containers**: for every running ki-managed container and the edge proxy,
+  CPU percent (100 is one fully used core, so it can exceed 100), memory use
+  without reclaimable file cache (as `docker stats` shows it) and the limit,
+  network and block I/O throughput, and the process count.
+
+Rates come from two consecutive samples, so they are empty (`null`, shown as
+`-`) in the first sample after the agent starts and for a container that has
+just started or restarted. The agent samples the host every
+`monitor.host_interval` (default 15s) and containers every
+`monitor.container_interval` (default 30s); while clients subscribe it samples
+as fast as the fastest subscriber asks (at least every 1s for the host and 2s
+for containers) and goes back to the base interval afterwards. History keeps one
+sample per `monitor.history_resolution` (default 15s) for `monitor.history`
+(default 1h, at most 24h). Viewers may read all of it
+(`host.stats`, `containers.stats` and their `subscribe` variants, see
+[`docs/protocol.md`](docs/protocol.md)).
+
+When the agent itself runs in a container (as in the development compose
+file), the host figures describe what that container can see. To report the
+real host, mount the host's `/proc` and `/sys` read-only (for example at
+`/host/proc` and `/host/sys`) and set `HOST_PROC=/host/proc` and
+`HOST_SYS=/host/sys`, which the sampling library honours. The packaged
+systemd install is not containerised and needs nothing.
+
 ## Protocol
 
 The agent speaks [JSON-RPC 2.0](https://www.jsonrpc.org/specification) over a
@@ -175,6 +220,7 @@ The agent manages Docker containers through these methods (all behind
 | `containers.remove {id, force?}` | Remove a container |
 | `containers.logs.subscribe {id, tail?, since?, timestamps?}` | Follow logs |
 | `containers.logs.unsubscribe {subscription}` | Stop following |
+| `containers.stats {project?, id?, history?}` | Latest resource usage per container (see [Monitoring](#monitoring)) |
 
 Only containers carrying the label `ki.managed=true` (plus `ki.project` and
 `ki.service`) are visible: anything else on the host is untouchable, and an
