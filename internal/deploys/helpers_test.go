@@ -98,6 +98,7 @@ type fakeComposer struct {
 	cfgErr   error
 	buildErr error
 	upErr    error
+	pullErr  error
 	// block, when set, makes Build wait for it to be closed (or ctx).
 	block chan struct{}
 	// entered receives the project each time Build is entered.
@@ -147,6 +148,12 @@ func (f *fakeComposer) Build(ctx context.Context, file, project string, out func
 		}
 	}
 	return f.buildErr
+}
+
+func (f *fakeComposer) Pull(_ context.Context, file, project string, out func(string, string)) error {
+	f.record("pull " + project)
+	out("stdout", "pulling "+project)
+	return f.pullErr
 }
 
 func (f *fakeComposer) Up(_ context.Context, file, project string, out func(string, string)) error {

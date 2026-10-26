@@ -140,6 +140,11 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		DockerHost: cfg.Docker.Host,
 		Home:       filepath.Join(cfg.DataDir, "git", "home"),
 		Logger:     logger,
+		// Registry credentials live in the agent's own docker config.
+		DockerConfig: cfg.Docker.ResolvedConfigDir(cfg.DataDir),
+	}
+	if err := composeRunner.PrepareDockerConfig(); err != nil {
+		return fmt.Errorf("docker config dir: %w", err)
 	}
 	// The edge routes to the real webhook listener, so the port it targets
 	// follows the effective listen address.
@@ -169,6 +174,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		Runtime:       rt,
 		DataDir:       cfg.DataDir,
 		HealthTimeout: cfg.Deploys.HealthTimeout,
+		Pull:          cfg.Deploys.Pull,
 		Keep:          cfg.Deploys.Keep,
 		LogMaxBytes:   int(cfg.Deploys.LogMaxBytes),
 		Logger:        logger,

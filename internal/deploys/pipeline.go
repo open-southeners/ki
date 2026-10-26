@@ -178,6 +178,15 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 		return fail(ReasonInternal, "cannot write the compose model")
 	}
 
+	// pull
+	if m.opts.Pull != "missing" {
+		m.stage(j, StagePull)
+		m.agent(j, "pulling images")
+		if err := m.opts.Compose.Pull(ctx, modelFile, slug, out); err != nil {
+			return fail(ReasonPullFailed, "%s", composeDetail(err))
+		}
+	}
+
 	// build
 	m.stage(j, StageBuild)
 	m.agent(j, "building")

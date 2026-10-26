@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -316,6 +317,18 @@ type Docker struct {
 	// CLI is the docker executable (with the compose v2 plugin) used for
 	// deploys; a bare name is looked up in PATH.
 	CLI string `yaml:"cli"`
+	// ConfigDir is the Docker client config directory (DOCKER_CONFIG) deploys
+	// run with: registry logins and credential helpers live here. Empty
+	// selects <data_dir>/docker.
+	ConfigDir string `yaml:"config_dir"`
+}
+
+// ResolvedConfigDir is ConfigDir, or <dataDir>/docker when unset.
+func (d Docker) ResolvedConfigDir(dataDir string) string {
+	if d.ConfigDir != "" {
+		return d.ConfigDir
+	}
+	return filepath.Join(dataDir, "docker")
 }
 
 // Webhooks configures the optional inbound webhook listener that triggers
@@ -365,7 +378,16 @@ type Deploys struct {
 	Keep int `yaml:"keep"`
 	// LogMaxBytes caps the stored log size of a single deploy.
 	LogMaxBytes int64 `yaml:"log_max_bytes"`
+	// Pull is "always" (refresh image-only services before every deploy) or
+	// "missing" (only pull images that are absent, when starting).
+	Pull string `yaml:"pull"`
 }
+
+// Deploys.Pull values.
+const (
+	PullAlways  = "always"
+	PullMissing = "missing"
+)
 
 // Edge configures the managed reverse proxy that routes project domains.
 type Edge struct {
@@ -435,7 +457,7 @@ func Default() Config {
 		Docker:   Docker{Host: "unix:///var/run/docker.sock", CLI: "docker"},
 		Webhooks: Webhooks{MaxBodyBytes: 5 << 20},
 		Edge:     Edge{Enabled: true, HTTPPort: 80, HTTPSPort: 443, WebhooksPort: 8090},
-		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20},
+		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20, Pull: PullAlways},
 		API: API{
 			Listen:            "127.0.0.1:8091",
 			EdgeListen:        "127.0.0.1:8092",
@@ -536,6 +558,8 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 	}
 	str("KI_DOCKER_HOST", &cfg.Docker.Host)
 	str("KI_DOCKER_CLI", &cfg.Docker.CLI)
+	str("KI_DOCKER_CONFIG_DIR", &cfg.Docker.ConfigDir)
+	str("KI_DEPLOYS_PULL", &cfg.Deploys.Pull)
 	str("KI_WEBHOOKS_LISTEN", &cfg.Webhooks.Listen)
 	str("KI_WEBHOOKS_TLS_CERT_FILE", &cfg.Webhooks.TLSCertFile)
 	str("KI_WEBHOOKS_TLS_KEY_FILE", &cfg.Webhooks.TLSKeyFile)
@@ -649,6 +673,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Docker.CLI == "" {
 		return errors.New("docker.cli must not be empty")
+	}
+	if c.Deploys.Pull != PullAlways && c.Deploys.Pull != PullMissing {
+		return fmt.Errorf("deploys.pull %q must be %q or %q", c.Deploys.Pull, PullAlways, PullMissing)
 	}
 	if c.Deploys.HealthTimeout <= 0 {
 		return errors.New("deploys.health_timeout must be positive")

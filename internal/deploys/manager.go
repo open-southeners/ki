@@ -35,6 +35,7 @@ const (
 type Composer interface {
 	Config(ctx context.Context, dir, composeFile, project string) ([]byte, error)
 	Build(ctx context.Context, file, project string, out func(stream, line string)) error
+	Pull(ctx context.Context, file, project string, out func(stream, line string)) error
 	Up(ctx context.Context, file, project string, out func(stream, line string)) error
 }
 
@@ -61,6 +62,9 @@ type Options struct {
 	Keep int
 	// LogMaxBytes caps the stored log of one deploy (default DefaultLogMaxBytes).
 	LogMaxBytes int
+	// Pull is "always" (default: refresh image-only services before build) or
+	// "missing" (skip the pull stage).
+	Pull string
 	// PollInterval is the health check period (default 2s).
 	PollInterval time.Duration
 	// OnFinished, if set, runs after every deploy of a project finished (any

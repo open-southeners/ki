@@ -52,7 +52,7 @@ func TestSuccessfulDeploy(t *testing.T) {
 	if files := f.comp.files; len(files) != 1 || files[0] != model {
 		t.Errorf("build files = %v, want [%s]", files, model)
 	}
-	if want := []string{"config app", "build app", "up app"}; strings.Join(f.comp.Calls(), ",") != strings.Join(want, ",") {
+	if want := []string{"config app", "pull app", "build app", "up app"}; strings.Join(f.comp.Calls(), ",") != strings.Join(want, ",") {
 		t.Errorf("calls = %v", f.comp.Calls())
 	}
 
@@ -119,7 +119,7 @@ func TestQueueAndSupersede(t *testing.T) {
 	if got := f.wait(t, c.ID); got.Status != StatusSucceeded {
 		t.Errorf("c = %+v", got)
 	}
-	if n := len(f.comp.Calls()); n != 6 { // a and c: config, build, up
+	if n := len(f.comp.Calls()); n != 8 { // a and c: config, pull, build, up
 		t.Errorf("calls = %v", f.comp.Calls())
 	}
 }
@@ -269,6 +269,9 @@ func TestFailureStages(t *testing.T) {
 		{"policy", func(f *fixture) {
 			f.comp.model = `{"services":{"web":{"image":"x","privileged":true},"db":{"image":"y","network_mode":"host"}}}`
 		}, ReasonPolicyViolation, StagePolicy, "2 policy violation(s)", 2},
+		{"pull", func(f *fixture) {
+			f.comp.pullErr = &compose.Error{Op: "pull", Err: errors.New("exit status 1"), Stderr: "pull access denied"}
+		}, ReasonPullFailed, StagePull, "pull access denied", 0},
 		{"build", func(f *fixture) {
 			f.comp.buildErr = &compose.Error{Op: "build", Err: errors.New("exit status 1"), Stderr: stderr}
 		}, ReasonBuildFailed, StageBuild, "failed to solve: boom", 0},

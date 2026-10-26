@@ -3,7 +3,7 @@
 // Untrusted project files are normalized with `docker compose config`, checked
 // by internal/policy, labelled by [Label] and only then built and started from
 // the labelled model, so what runs is exactly what was checked. Every
-// invocation gets a minimal environment (PATH, HOME and DOCKER_HOST) and never
+// invocation gets a minimal environment (PATH, HOME, DOCKER_HOST and DOCKER_CONFIG) and never
 // carries secrets in argv.
 package compose
 
@@ -39,13 +39,16 @@ type Runner struct {
 	// Home is passed as HOME (so Docker reads its config from there, not
 	// from the agent's own home).
 	Home string
+	// DockerConfig is passed as DOCKER_CONFIG when non-empty: the directory
+	// holding registry logins and credential helpers.
+	DockerConfig string
 	// Logger receives debug lines; nil discards them.
 	Logger *slog.Logger
 }
 
 // Error is a failed Compose invocation.
 type Error struct {
-	// Op is the compose subcommand: config, build or up.
+	// Op is the compose subcommand: config, config, build, pull or up.
 	Op string
 	// Err is the underlying failure (usually *exec.ExitError).
 	Err error
@@ -90,6 +93,20 @@ func (r *Runner) Build(ctx context.Context, file, project string, out func(strea
 // streaming output like [Runner.Build].
 func (r *Runner) Up(ctx context.Context, file, project string, out func(stream, line string)) error {
 	return r.stream(ctx, "up", file, project, out, "up", "-d", "--remove-orphans")
+}
+
+// Pull runs `compose pull --ignore-buildable` for the labelled model file,
+// refreshing the image-only services, streaming output like [Runner.Build].
+func (r *Runner) Pull(ctx context.Context, file, project string, out func(stream, line string)) error {
+	return r.stream(ctx, "pull", file, project, out, "pull", "--ignore-buildable")
+}
+
+// PrepareDockerConfig creates the DockerConfig directory (mode 0700) when set.
+func (r *Runner) PrepareDockerConfig() error {
+	if r.DockerConfig == "" {
+		return nil
+	}
+	return os.MkdirAll(r.DockerConfig, 0o700)
 }
 
 func (r *Runner) stream(ctx context.Context, op, file, project string, out func(stream, line string), args ...string) error {
@@ -165,6 +182,9 @@ func (r *Runner) env() []string {
 	}
 	if r.DockerHost != "" {
 		env = append(env, "DOCKER_HOST="+r.DockerHost)
+	}
+	if r.DockerConfig != "" {
+		env = append(env, "DOCKER_CONFIG="+r.DockerConfig)
 	}
 	return env
 }
