@@ -102,7 +102,7 @@ heartbeats and the agent started its reconnect backoff.
 2026/10/14 18:46:01 control plane listening on ws://127.0.0.1:18080/agent
 [127.0.0.1:33722] 2026/10/14 18:46:02.411644 connected (ki-agent/dev, protocol 1.0.0)
 [127.0.0.1:33722] 2026/10/14 18:46:02.412545 hello: {"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers"],"protocol":"1.0.0"}
-[127.0.0.1:33722] 2026/10/14 18:46:02.412619 info: {"arch":"amd64","commit":"dev","control_plane":{"state":"connected","url":"ws://127.0.0.1:18080/agent","connected_since":"2026-10-14T18:46:02.411632064Z","reconnects":0},"go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1,"version":"dev"}
+[127.0.0.1:33722] 2026/10/14 18:46:02.412619 info: {"arch":"amd64","commit":"dev","control_plane":{"state":"connected","url":"ws://127.0.0.1:18080/agent","connected_since":"2026-10-14T18:46:02.411632064Z","reconnects":0},"go_version":"go1.26.1","hostname":"example-host","os":"linux","uptime_ms":1,"version":"dev"}
 [127.0.0.1:33722] 2026/10/14 18:46:04.414412 heartbeat #1: {"time":"2026-10-14T18:46:04.413041896Z","uptime_ms":2003}
 [127.0.0.1:33722] 2026/10/14 18:46:06.415149 heartbeat #2: {"time":"2026-10-14T18:46:06.413041815Z","uptime_ms":4004}
 [127.0.0.1:33722] 2026/10/14 18:46:08.414214 heartbeat #3: {"time":"2026-10-14T18:46:08.41304193Z","uptime_ms":6003}

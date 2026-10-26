@@ -41,9 +41,9 @@ minimum role it needs (`x-role` in the OpenRPC document). Roles are ordered
 
 | Role | Methods |
 |---|---|
-| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `auth.whoami` |
+| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `aws.status`, `auth.whoami` |
 | `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger`, `deploys.rollback`, `projects.services.start`/`stop`/`restart` |
-| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
+| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`import`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
 
 A call below the required role fails with `-32001` and the message
 `forbidden: requires <role>`. A method that is not in the role table is denied
@@ -238,7 +238,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`, `aws`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -449,6 +449,7 @@ empty until checked out), `source`, `status`, `stage`, `error` (only when
   | `fetch` | Under the project lock: fetch the ref, detached checkout, record `commit`, write `.env` from the project's variables |
   | `config` | `docker compose config` normalizes the Compose file (with the variables above interpolated); `include` and `extends.file` paths that are absolute or leave the checkout are rejected |
   | `policy` | The normalized model is checked against the safety policy; every violation fails the deploy |
+  | `pull` | `docker compose pull --ignore-buildable` refreshes image-only services (skipped when `deploys.pull` is `missing`); registry credentials come from the agent's Docker config (`docker.config_dir`) |
   | `build` | `docker compose build` of the labelled model, output streamed |
   | `up` | `docker compose up -d --remove-orphans` |
   | `health` | Wait until every container of the deployed services is `running` and, where a healthcheck exists, `healthy`; fails on `unhealthy`, an exited container or `deploys.health_timeout` (default 5 minutes) |
@@ -467,6 +468,7 @@ empty until checked out), `source`, `status`, `stage`, `error` (only when
   | `compose_not_found` | The project's Compose file is missing |
   | `compose_invalid` | Compose could not normalize the file, or it includes files outside the checkout |
   | `policy_violation` | The policy rejected the model; `error.violations` lists `{service, rule, detail}` |
+  | `pull_failed` | `docker compose pull` failed, typically missing registry credentials or an unreachable registry |
   | `build_failed` | `docker compose build` failed |
   | `up_failed` | `docker compose up` failed |
   | `health_failed` | Containers did not become healthy in time, or became unhealthy or exited |
@@ -629,7 +631,8 @@ fingerprint and expiry are in `edge.status` (`self_signed`) and
 | `edge.status` | none | `EdgeStatus` | all |
 | `edge.csr` | `hostname` | `{hostname, csr}` (PEM) | Unix socket, control plane |
 | `edge.certificate.install` | `hostname`, `certificate` (PEM chain) | `EdgeStatus` | Unix socket, control plane |
-| `edge.certificate.remove` | `hostname` | `EdgeStatus` | Unix socket, control plane |
+| `edge.certificate.import` | `certificate` (PEM chain), `key` (PEM), `server?` | `EdgeStatus` | Unix socket only |
+| `edge.certificate.remove` | `id` or `hostname` | `EdgeStatus` | Unix socket, control plane |
 
 `edge.status` always answers; with the edge disabled it reports `enabled:
 false` and `state: disabled`. The restricted methods answer `-32001` on the
@@ -657,6 +660,39 @@ RPC; the private key never leaves the server:
 
 `edge.status.certificates` lists installed certificates (with `not_after`) and
 the ACME ones the edge will obtain (`edge.domain` and project domains).
+
+`EdgeStatus` also reports `mode` (`front` or `behind`) and, in behind mode,
+`listen`. Each `certificates[]` entry is `{id, hostname, names, source, server,
+not_after?}` with `source` one of `acme`, `installed` or `imported`.
+
+### Bring-your-own certificates
+
+`edge.certificate.import {certificate, key, server?}` is accepted on the Unix
+socket only, because it carries a private key; other transports get `-32001`.
+The key must match the leaf, and the leaf must be valid now and not expire
+within 24 hours (`-32602` otherwise). The names are the leaf's DNS subject
+alternative names; wildcards such as `*.example.com` are accepted here (one
+label deep) and never conflict with project domains. The files are stored under
+`<data_dir>/edge/certs/` (mode 0600) under a stable id derived from the names
+(`i-<hex>`); importing the same names again replaces them.
+
+A project router whose every domain is covered by an installed or imported
+certificate (exact or wildcard) is served with that certificate instead of an
+ACME one. With `server: true` the non-wildcard names also become server
+hostnames (reserved against project exposure, panel and hooks routes).
+`edge.certificate.remove {id}` removes an imported certificate; `{hostname}`
+still removes an installed server-hostname certificate.
+
+### Behind mode
+
+With `edge.mode: behind` the edge does not own ports 80/443: Traefik binds
+only `edge.behind_listen` (loopback, default `127.0.0.1:8480`) over plain HTTP,
+requests no ACME certificates and does no HTTP-to-HTTPS redirect. It trusts
+`X-Forwarded-*` from loopback only. Server routes (panel, hooks, RPC) are served
+only for the server hostnames; the bare-IP routes are not created, since the
+front web server decides what reaches the agent. `edge.status` reports
+`mode: "behind"` and `listen`. `ki-agent edge proxy-config` prints the front
+server's configuration for the domains to forward.
 
 ### Server hostnames
 
@@ -791,6 +827,28 @@ socket"). This is what `ki-agent enroll` and `unenroll` use.
 `agent.info` reports where the active control plane came from in
 `control_plane.source`: `"config"` or `"enrollment"` (absent while disabled).
 
+## AWS
+
+Capability `aws`. `aws.status` (role `viewer`) reports whether the server is an
+EC2 instance and which AWS agents run on it:
+
+```json
+{"ec2": {"detected": true, "instance_id": "i-0123456789abcdef0", "instance_type": "t3.small",
+         "region": "eu-west-1", "availability_zone": "eu-west-1a", "ami_id": "ami-0123456789abcdef0",
+         "instance_profile_arn": "arn:aws:iam::123456789012:instance-profile/example",
+         "imds_v1_enabled": false},
+ "agents": {"cloudwatch": {"installed": false, "active": false, "enabled": false, "source": ""},
+            "ssm": {"installed": true, "unit": "snap.amazon-ssm-agent.amazon-ssm-agent.service",
+                    "active": true, "enabled": true, "version": "3.3.0.0", "source": "snap"}}}
+```
+
+Off EC2 the result is `{"ec2": {"detected": false}, ...}` within about a
+second. The identity is read with IMDSv2 only and cached for 10 minutes; the
+agent never reads instance credentials. `imds_v1_enabled` is true when an
+unauthenticated metadata request works. Agent state comes from systemd, without
+root. Whether an agent is registered with its service is not visible locally;
+see [`aws-agents.md`](aws-agents.md).
+
 ## Monitoring
 
 Capability `stats`. All six methods are `viewer` methods. The agent samples
@@ -911,9 +969,9 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats","aws"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
-< {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"unikialab","os":"linux","uptime_ms":1075,"version":"dev"}}
+< {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"example-host","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}
 > {"jsonrpc":"2.0","id":5,"method":"containers.list"}
 < {"jsonrpc":"2.0","id":5,"error":{"code":-32008,"message":"container runtime unavailable"}}

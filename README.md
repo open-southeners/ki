@@ -50,6 +50,27 @@ The CLI talks to the agent over a socket owned by the `ki-agent` group, so
 users who should run `ki-agent status` and friends must be in that group
 (`sudo usermod -aG ki-agent USER`, then log in again) or use `sudo`.
 
+### Installing a local build
+
+Before a public release, or to try an unreleased branch, build release-shaped
+archives from a checkout (needs `go` and [bun](https://bun.sh)) and install
+from them:
+
+```sh
+scripts/local-release.sh                 # optional: [VERSION] [OUTDIR]; writes ./dist-local
+KI_INSTALL_BASE_URL=file://$PWD/dist-local sh dist-local/install.sh --no-start
+
+# or on another server:
+scp -r dist-local user@server:/tmp/ki-agent-dist
+ssh user@server 'sudo KI_INSTALL_BASE_URL=file:///tmp/ki-agent-dist sh /tmp/ki-agent-dist/install.sh'
+```
+
+The directory holds `ki-agent_linux_amd64.tar.gz`, `ki-agent_linux_arm64.tar.gz`,
+`checksums.txt` and `install.sh`, named like a GitHub release, so the
+installer verifies the sha256 checksum as usual. There is no cosign signature
+for a local build, so the installer must run on a machine without `cosign`
+installed (it would otherwise insist on the signature bundle).
+
 ## Prerequisites
 
 On the server: Docker with the Compose plugin, `git` and an `ssh` client (the
@@ -526,6 +547,125 @@ running. A port conflict or an engine problem does not stop the agent: it shows
 up as `state: error` in `edge status`. A control plane can install an origin
 certificate for the server's hostname with `edge.csr` and
 `edge.certificate.install` (see [`docs/protocol.md`](docs/protocol.md)).
+
+## AWS
+
+`ki-agent aws status` (and the `aws.status` method, and the Overview page of the
+web panel) tells whether the server is an EC2 instance and which AWS agents run
+on it:
+
+```
+Instance          i-0123456789abcdef0 (t3.small)
+Region            eu-west-1 (eu-west-1a)
+AMI               ami-0123456789abcdef0
+Instance profile  arn:aws:iam::123456789012:instance-profile/example
+IMDSv1            disabled
+SSM agent         active, enabled, 3.3.0.0 (snap)
+CloudWatch agent  not installed
+```
+
+The agent reads the instance metadata service with IMDSv2 only, never touches
+instance credentials, and caches the answer for 10 minutes. Off EC2 the command
+prints `EC2  not detected` within about a second. A warning is shown when the
+unauthenticated IMDSv1 is still enabled. Agent state is read from systemd
+without root. What the agents report and why registration is not shown is
+explained in [`docs/aws-agents.md`](docs/aws-agents.md).
+
+## Migrating a server that already runs a web server
+
+Servers managed with Forge (nginx) or a hand-written Caddy already own ports 80
+and 443, so the edge cannot start in its default **front** mode. Run it in
+**behind** mode instead: Traefik listens on a loopback address in plain HTTP,
+and the existing web server keeps its certificates and forwards the migrated
+domains to it. Sites move one at a time.
+
+1. Configure the agent (`/etc/ki-agent/config.yaml`) and restart it:
+
+   ```yaml
+   edge:
+     mode: behind
+     behind_listen: 127.0.0.1:8480   # default
+     domain: ki.example.com          # optional: panel and webhooks hostname
+   ```
+
+2. Add `edge.domain` (if set) as a site on the existing web server with its own
+   certificate, and make it forward as in the next step.
+3. For each site you move, expose it from a project (`ki.expose.*` labels or
+   `ki-agent projects expose`), deploy it, then print the block to add:
+
+   ```sh
+   ki-agent edge proxy-config                         # nginx, every exposed domain
+   ki-agent edge proxy-config --domain app.example.com
+   ki-agent edge proxy-config --format caddy
+   ```
+
+   The output proxies to the behind listener, preserving `Host`,
+   `X-Forwarded-For`, `X-Forwarded-Proto` and WebSocket upgrades. With Forge,
+   paste it into the site's **Edit Nginx Configuration** (replacing the old
+   `location /` that served the legacy app). The agent never writes outside its
+   data directory; you add the blocks yourself.
+4. When the last site has moved, switch to **front** mode: stop the web server
+   (`systemctl disable --now nginx`), set `edge.mode: front` and restart the
+   agent (`systemctl restart ki-agent`). The edge now binds 80/443 and obtains
+   certificates itself (or serves ones you import, see below). Until then
+   nothing but the web server is public.
+
+In behind mode the edge requests no ACME certificates, does not redirect to
+HTTPS and does not publish bare-IP routes; the web server in front decides what
+reaches the agent. `ki-agent edge status` and the Edge page show the mode and
+the listen address.
+
+## Bring your own certificate
+
+Sites whose certificate you already have (for example a Cloudflare origin
+wildcard) are served with it instead of ACME. Import it over the local socket,
+as a user in the `ki-agent` group or with sudo:
+
+```sh
+ki-agent edge certificate import --cert fullchain.pem --key privkey.pem
+ki-agent edge certificate import --cert fullchain.pem --key privkey.pem --server
+ki-agent edge certificate remove <id>          # id as shown by `edge status`
+```
+
+The key must match the leaf, and the leaf must be valid for at least 24 more
+hours. The names are the certificate's DNS SANs and may include wildcards such
+as `*.example.com` (one label deep, so it covers `app.example.com` but not
+`a.b.example.com`). A project whose every domain is covered by an imported (or
+installed) certificate is served with it; other projects keep using ACME.
+`--server` also makes the certificate's plain names server hostnames (panel,
+webhooks), reserved against project exposure. The key and certificate are
+stored under the data directory with mode 0600. Import is available on the
+local socket only: private keys never go through the web panel or the network
+API, which lists imported certificates (names, wildcard, server flag, expiry)
+and can remove them.
+
+## Private registries (ECR)
+
+Deploys run `docker compose` with their own Docker client configuration, so
+registry logins do not depend on a user's home directory. It lives in
+`docker.config_dir` (default `<data_dir>/docker`, mode 0700). Put credentials
+there with `docker --config <dir> login <registry>`, or use a credential helper.
+For Amazon ECR use [`docker-credential-ecr-login`](https://github.com/awslabs/amazon-ecr-credential-helper):
+
+1. Install the helper so it is in the `PATH` of the service (for example
+   `/usr/local/bin/docker-credential-ecr-login`).
+2. Write `<config_dir>/config.json` (owned by `ki-agent`):
+
+   ```json
+   {"credHelpers": {"123456789012.dkr.ecr.eu-west-1.amazonaws.com": "ecr-login"}}
+   ```
+
+3. Give the instance role read access to ECR (`ecr:GetAuthorizationToken` and
+   the `ecr:BatchGetImage` / `ecr:GetDownloadUrlForLayer` family); the helper
+   uses it through the instance metadata service, so no secrets are stored.
+
+Image-only services are refreshed at the start of every deploy (a `pull` stage
+running `docker compose pull --ignore-buildable`) so `latest`-style tags
+update. A failure is reported as `pull_failed` with Docker's message. Set
+`deploys.pull: missing` to skip the stage and let `up` pull only images that
+are absent. With the systemd unit the directory must be writable by the
+service: the default is inside the data directory; for another location add it
+to `ReadWritePaths=` in a drop-in.
 
 ## Development
 
