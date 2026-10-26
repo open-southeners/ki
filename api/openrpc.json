@@ -1353,6 +1353,286 @@
       ]
     },
     {
+      "name": "host.stats",
+      "x-role": "viewer",
+      "summary": "Read the latest host resource sample and optionally its recent history.",
+      "description": "Never blocks on sampling: current is null until the agent has taken its first sample (shortly after start). The agent samples every monitor.host_interval, faster while host.subscribe subscriptions exist; history holds one sample per monitor.history_resolution slot for up to monitor.history. With per_core true the call may wait up to 2 seconds for a sample that carries the per-core breakdown. Rates (cpu.percent and every *_per_s field) are null in the first sample after the agent starts. Inside a container the figures describe the container's view of the host unless the host's /proc and /sys are mounted (see the README).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "history",
+          "description": "Include the retained samples, oldest first. Defaults to false.",
+          "schema": { "type": "boolean" }
+        },
+        {
+          "name": "per_core",
+          "description": "Include cpu.per_core. Defaults to false.",
+          "schema": { "type": "boolean" }
+        }
+      ],
+      "result": {
+        "name": "stats",
+        "schema": {
+          "type": "object",
+          "required": ["current"],
+          "properties": {
+            "current": {
+              "oneOf": [
+                { "$ref": "#/components/schemas/HostSample" },
+                { "type": "null" }
+              ]
+            },
+            "history": {
+              "type": "array",
+              "description": "Present only when history was requested.",
+              "items": { "$ref": "#/components/schemas/HostSample" }
+            }
+          }
+        }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" }
+      ]
+    },
+    {
+      "name": "host.subscribe",
+      "x-role": "viewer",
+      "summary": "Receive host resource samples as host.update notifications.",
+      "description": "A snapshot stream (see SubscriptionUpdate): a slow consumer sees the latest sample. The first update is sent as soon as a sample exists. While subscriptions exist the agent samples at the fastest requested interval (never slower than monitor.host_interval); it returns to the configured interval when the last one ends.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "interval_ms",
+          "description": "Requested interval between updates in milliseconds. The agent clamps it to 1000..60000. Defaults to 2000.",
+          "schema": { "type": "integer", "minimum": 0 }
+        },
+        {
+          "name": "per_core",
+          "description": "Include cpu.per_core in the samples. Defaults to false.",
+          "schema": { "type": "boolean" }
+        }
+      ],
+      "result": {
+        "name": "subscription",
+        "schema": {
+          "type": "object",
+          "required": ["subscription", "interval_ms"],
+          "properties": {
+            "subscription": { "$ref": "#/components/schemas/SubscriptionID" },
+            "interval_ms": { "type": "integer", "description": "The interval actually applied after clamping." }
+          }
+        }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" }
+      ]
+    },
+    {
+      "name": "host.unsubscribe",
+      "x-role": "viewer",
+      "summary": "Stop a host.subscribe subscription.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "subscription",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/SubscriptionID" }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": { "type": "object", "additionalProperties": false }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/SubscriptionNotFound" }
+      ]
+    },
+    {
+      "name": "host.update",
+      "summary": "Notification sent by the agent for a host.subscribe subscription.",
+      "description": "Sent from agent to client; it has no id and expects no response. It is not a callable method.",
+      "x-notification": true,
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "update",
+          "description": "The subscription update envelope; data is {sample: HostSample}.",
+          "required": true,
+          "schema": {
+            "allOf": [
+              { "$ref": "#/components/schemas/SubscriptionUpdate" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "required": ["sample"],
+                    "properties": { "sample": { "$ref": "#/components/schemas/HostSample" } }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "containers.stats",
+      "x-role": "viewer",
+      "summary": "Read the latest resource sample of the managed containers.",
+      "description": "Covers the running containers ki manages plus the edge proxy. Never blocks on sampling: a container's current is null until its first sample exists. The agent samples every monitor.container_interval, faster while containers.stats.subscribe subscriptions exist. available is false (and containers empty) when the container engine cannot be reached; this is not an error. A container that appeared since the previous sample has null rates (cpu_percent, *_per_s) in its first sample. An unmanaged or unknown id fails with NotFound.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "project",
+          "description": "Only containers of this project slug.",
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "id",
+          "description": "Only this container: the full id or a prefix of at least 12 characters.",
+          "schema": { "type": "string", "minLength": 12 }
+        },
+        {
+          "name": "history",
+          "description": "Include the retained samples of each container, oldest first. Defaults to false.",
+          "schema": { "type": "boolean" }
+        }
+      ],
+      "result": {
+        "name": "stats",
+        "schema": {
+          "type": "object",
+          "required": ["available", "containers"],
+          "properties": {
+            "available": { "type": "boolean" },
+            "containers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["current"],
+                "properties": {
+                  "current": {
+                    "oneOf": [
+                      { "$ref": "#/components/schemas/ContainerSample" },
+                      { "type": "null" }
+                    ]
+                  },
+                  "history": {
+                    "type": "array",
+                    "description": "Present only when history was requested.",
+                    "items": { "$ref": "#/components/schemas/ContainerSample" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/NotFound" }
+      ]
+    },
+    {
+      "name": "containers.stats.subscribe",
+      "x-role": "viewer",
+      "summary": "Receive container resource samples as containers.stats.update notifications.",
+      "description": "A snapshot stream (see SubscriptionUpdate). Each update carries the latest sample of every selected container; the first is sent once a sampling round has completed. While subscriptions exist the agent samples at the fastest requested interval (never slower than monitor.container_interval). An unmanaged id fails with NotFound; an unreachable engine fails with RuntimeUnavailable.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "project",
+          "description": "Only containers of this project slug.",
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "id",
+          "description": "Only this container: the full id or a prefix of at least 12 characters.",
+          "schema": { "type": "string", "minLength": 12 }
+        },
+        {
+          "name": "interval_ms",
+          "description": "Requested interval between updates in milliseconds. The agent clamps it to 2000..60000. Defaults to 5000.",
+          "schema": { "type": "integer", "minimum": 0 }
+        }
+      ],
+      "result": {
+        "name": "subscription",
+        "schema": {
+          "type": "object",
+          "required": ["subscription", "interval_ms"],
+          "properties": {
+            "subscription": { "$ref": "#/components/schemas/SubscriptionID" },
+            "interval_ms": { "type": "integer", "description": "The interval actually applied after clamping." }
+          }
+        }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/NotFound" },
+        { "$ref": "#/components/errors/RuntimeUnavailable" }
+      ]
+    },
+    {
+      "name": "containers.stats.unsubscribe",
+      "x-role": "viewer",
+      "summary": "Stop a containers.stats.subscribe subscription.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "subscription",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/SubscriptionID" }
+        }
+      ],
+      "result": {
+        "name": "ok",
+        "schema": { "type": "object", "additionalProperties": false }
+      },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" },
+        { "$ref": "#/components/errors/SubscriptionNotFound" }
+      ]
+    },
+    {
+      "name": "containers.stats.update",
+      "summary": "Notification sent by the agent for a containers.stats.subscribe subscription.",
+      "description": "Sent from agent to client; it has no id and expects no response. It is not a callable method.",
+      "x-notification": true,
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "update",
+          "description": "The subscription update envelope; data is {available, containers: ContainerSample[]}.",
+          "required": true,
+          "schema": {
+            "allOf": [
+              { "$ref": "#/components/schemas/SubscriptionUpdate" },
+              {
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "required": ["available", "containers"],
+                    "properties": {
+                      "available": { "type": "boolean" },
+                      "containers": { "type": "array", "items": { "$ref": "#/components/schemas/ContainerSample" } }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "edge.status",
       "x-role": "viewer",
       "summary": "Report the state of the edge proxy.",
@@ -1927,6 +2207,142 @@
   ],
   "components": {
     "schemas": {
+      "HostSample": {
+        "type": "object",
+        "description": "One host measurement. time is when the agent took the sample. Rate fields (cpu.percent and every *_per_s) are null in the first sample after the agent starts and whenever a counter went backwards; they are computed from consecutive samples.",
+        "required": ["time", "cpu", "load", "memory", "swap", "disks", "disk_io", "network", "uptime_s"],
+        "properties": {
+          "time": { "type": "string", "format": "date-time" },
+          "cpu": {
+            "type": "object",
+            "required": ["percent", "cores"],
+            "properties": {
+              "percent": { "type": ["number", "null"], "description": "Busy share of all cores, 0..100." },
+              "cores": { "type": "integer" },
+              "per_core": { "type": "array", "items": { "type": "number" }, "description": "Present only when requested." }
+            }
+          },
+          "load": {
+            "type": "object",
+            "required": ["1", "5", "15"],
+            "properties": {
+              "1": { "type": "number" },
+              "5": { "type": "number" },
+              "15": { "type": "number" }
+            }
+          },
+          "memory": {
+            "type": "object",
+            "required": ["total", "used", "available", "percent"],
+            "properties": {
+              "total": { "type": "integer", "description": "Bytes." },
+              "used": { "type": "integer", "description": "Bytes." },
+              "available": { "type": "integer", "description": "Bytes." },
+              "percent": { "type": "number" }
+            }
+          },
+          "swap": {
+            "type": "object",
+            "required": ["total", "used", "percent"],
+            "properties": {
+              "total": { "type": "integer", "description": "Bytes." },
+              "used": { "type": "integer", "description": "Bytes." },
+              "percent": { "type": "number" }
+            }
+          },
+          "disks": {
+            "type": "array",
+            "description": "The filesystems holding / and data_dir plus monitor.disk_paths, de-duplicated by device.",
+            "items": {
+              "type": "object",
+              "required": ["path", "device", "fstype", "total", "used", "free", "percent", "inodes_percent"],
+              "properties": {
+                "path": { "type": "string" },
+                "device": { "type": "string" },
+                "fstype": { "type": "string" },
+                "total": { "type": "integer", "description": "Bytes." },
+                "used": { "type": "integer", "description": "Bytes." },
+                "free": { "type": "integer", "description": "Bytes." },
+                "percent": { "type": "number" },
+                "inodes_percent": { "type": "number" }
+              }
+            }
+          },
+          "disk_io": {
+            "type": "object",
+            "description": "Summed over whole block devices (partitions, loop and ram devices are not counted).",
+            "required": ["read_bytes_per_s", "write_bytes_per_s", "read_ops_per_s", "write_ops_per_s"],
+            "properties": {
+              "read_bytes_per_s": { "type": ["number", "null"] },
+              "write_bytes_per_s": { "type": ["number", "null"] },
+              "read_ops_per_s": { "type": ["number", "null"] },
+              "write_ops_per_s": { "type": ["number", "null"] }
+            }
+          },
+          "network": {
+            "type": "object",
+            "description": "Summed over the interfaces other than lo, veth*, docker*, br-*, cni*, flannel* and virbr*.",
+            "required": ["rx_bytes_per_s", "tx_bytes_per_s", "interfaces"],
+            "properties": {
+              "rx_bytes_per_s": { "type": ["number", "null"] },
+              "tx_bytes_per_s": { "type": ["number", "null"] },
+              "interfaces": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "rx_bytes_per_s", "tx_bytes_per_s"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "rx_bytes_per_s": { "type": ["number", "null"] },
+                    "tx_bytes_per_s": { "type": ["number", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          "uptime_s": { "type": "integer" }
+        }
+      },
+      "ContainerSample": {
+        "type": "object",
+        "description": "One container measurement. time is when the agent took the sample. Rate fields (cpu_percent and every *_per_s) are null in a container's first sample and right after it restarted.",
+        "required": ["time", "id", "name", "project", "service", "component", "cpu_percent", "memory", "network", "block_io", "pids"],
+        "properties": {
+          "time": { "type": "string", "format": "date-time" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "project": { "type": "string", "description": "Project slug; empty for containers outside a project." },
+          "service": { "type": "string", "description": "Compose service name; empty outside a project." },
+          "component": { "type": "string", "description": "Empty for project services; the edge proxy reports its component name." },
+          "cpu_percent": { "type": ["number", "null"], "description": "Percent of one core: 100 is one fully used core and the value can exceed 100 with several cores." },
+          "memory": {
+            "type": "object",
+            "required": ["usage", "limit", "percent"],
+            "properties": {
+              "usage": { "type": "integer", "description": "Bytes, without reclaimable file cache (like docker stats)." },
+              "limit": { "type": "integer", "description": "Bytes." },
+              "percent": { "type": ["number", "null"], "description": "Null when there is no limit." }
+            }
+          },
+          "network": {
+            "type": "object",
+            "required": ["rx_bytes_per_s", "tx_bytes_per_s"],
+            "properties": {
+              "rx_bytes_per_s": { "type": ["number", "null"] },
+              "tx_bytes_per_s": { "type": ["number", "null"] }
+            }
+          },
+          "block_io": {
+            "type": "object",
+            "required": ["read_bytes_per_s", "write_bytes_per_s"],
+            "properties": {
+              "read_bytes_per_s": { "type": ["number", "null"] },
+              "write_bytes_per_s": { "type": ["number", "null"] }
+            }
+          },
+          "pids": { "type": "integer" }
+        }
+      },
       "SemVer": {
         "type": "string",
         "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].*)?$",

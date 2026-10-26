@@ -28,6 +28,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/enroll"
 	"github.com/open-southeners/ki-agent/internal/enrollment"
 	"github.com/open-southeners/ki-agent/internal/git"
+	"github.com/open-southeners/ki-agent/internal/monitor"
 	"github.com/open-southeners/ki-agent/internal/panel"
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
@@ -155,12 +156,16 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 
 	// The deploy manager is closed (cancelling and recording running deploys)
 	// before the store closes: defers run last-in first-out.
+	monMgr := monitor.NewManager(monitor.Options{
+		Config: cfg.Monitor, DataDir: cfg.DataDir, Runtime: rt, Logger: logger,
+	})
+	defer monMgr.Close()
 	deployMgr, err := deploys.New(deploys.Options{
 		Store:         db,
 		Projects:      projSvc,
 		Git:           gitClient,
 		Compose:       composeRunner,
-		OnFinished:    func(string) { edgeMgr.Trigger() },
+		OnFinished:    func(string) { edgeMgr.Trigger(); monMgr.TriggerContainers() },
 		Runtime:       rt,
 		DataDir:       cfg.DataDir,
 		HealthTimeout: cfg.Deploys.HealthTimeout,
@@ -199,6 +204,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		SessionIdle: cfg.Panel.SessionIdle, SessionMax: cfg.Panel.SessionMax,
 	})
 	acc.Register(router)
+	monMgr.Register(router)
 	var panelHandler http.Handler
 	if cfg.Panel.Enabled {
 		panelHandler = panel.New(panel.Options{Accounts: acc, Logger: logger, SessionMax: cfg.Panel.SessionMax})
@@ -245,6 +251,8 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	if err := edgeMgr.Start(ctx); err != nil {
 		return err
 	}
+
+	monMgr.Start(ctx)
 
 	if webhookListen != "" {
 		ln, err := net.Listen("tcp", webhookListen)

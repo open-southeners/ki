@@ -13,6 +13,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/deploys"
 	"github.com/open-southeners/ki-agent/internal/edge"
 	"github.com/open-southeners/ki-agent/internal/enrollment"
+	"github.com/open-southeners/ki-agent/internal/monitor"
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 )
@@ -82,8 +83,8 @@ func TestSpecMatchesRouter(t *testing.T) {
 			t.Errorf("%s: x-role = %q, auth.MethodRoles = %q", m.Name, m.Role, need)
 		}
 	}
-	if notifications != 3 {
-		t.Errorf("notifications documented = %d, want 3", notifications)
+	if notifications != 5 {
+		t.Errorf("notifications documented = %d, want 5", notifications)
 	}
 	slices.Sort(names)
 	slices.Sort(local)
@@ -97,6 +98,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 	edge.NewHandlers(nil, "", nil).Register(r)
 	enrollment.New(enrollment.Options{}).Register(r)
 	accounts.New(accounts.Options{}).Register(r)
+	monitor.NewManager(monitor.Options{}).Register(r)
 	if got := r.Methods(); !slices.Equal(got, names) {
 		t.Fatalf("router methods %v != spec methods %v", got, names)
 	}
