@@ -94,6 +94,24 @@ edge:
   # Loopback port used for the webhook listener when webhooks.listen is empty.
   webhooks_port: 8090
 
+# Resource monitoring (stats). The agent always samples the host and the
+# managed containers in the background at the base intervals below, and
+# faster (down to 1s for the host, 2s for containers) while a client is
+# subscribed to host.subscribe / containers.stats.subscribe or running
+# `ki-agent stats --watch`. History is kept in memory only.
+monitor:
+  # Base host (CPU, memory, disk, network) sampling period. At least 1s.
+  host_interval: 15s
+  # Base container sampling period. At least 2s.
+  container_interval: 30s
+  # How far back in-memory history is kept. At most 24h.
+  history: 1h
+  # Spacing of retained history samples. At least 1s, at most history.
+  history_resolution: 15s
+  # Extra absolute mount points reported as disks, in addition to the
+  # filesystems holding "/" and data_dir. Env: comma-separated.
+  disk_paths: []
+
 # Optional outbound connection to a control plane. The agent dials out and
 # reconnects with exponential backoff, so no inbound port needs to be open.
 control_plane:

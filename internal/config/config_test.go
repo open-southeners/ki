@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *cfg != Default() {
+	if !reflect.DeepEqual(*cfg, Default()) {
 		t.Fatalf("got %+v, want defaults %+v", *cfg, Default())
 	}
 	d := Default()
@@ -357,7 +358,10 @@ func TestExampleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *cfg != Default() {
+	if len(cfg.Monitor.DiskPaths) == 0 {
+		cfg.Monitor.DiskPaths = nil
+	}
+	if !reflect.DeepEqual(*cfg, Default()) {
 		t.Fatalf("example config differs from defaults:\n got %+v\nwant %+v", *cfg, Default())
 	}
 }
@@ -433,5 +437,54 @@ func TestEdgeValidation(t *testing.T) {
 				t.Fatalf("Validate = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestMonitorDefaultsEnv(t *testing.T) {
+	d := Default().Monitor
+	if d.HostInterval != 15*time.Second || d.ContainerInterval != 30*time.Second || d.History != time.Hour ||
+		d.HistoryResolution != 15*time.Second || len(d.DiskPaths) != 0 {
+		t.Fatalf("defaults = %+v", d)
+	}
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_MONITOR_HOST_INTERVAL":      "5s",
+		"KI_MONITOR_CONTAINER_INTERVAL": "10s",
+		"KI_MONITOR_HISTORY":            "30m",
+		"KI_MONITOR_HISTORY_RESOLUTION": "5s",
+		"KI_MONITOR_DISK_PATHS":         " /, /data ,,",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := cfg.Monitor
+	if m.HostInterval != 5*time.Second || m.ContainerInterval != 10*time.Second || m.History != 30*time.Minute ||
+		m.HistoryResolution != 5*time.Second || !reflect.DeepEqual(m.DiskPaths, []string{"/", "/data"}) {
+		t.Fatalf("monitor = %+v", m)
+	}
+	if _, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{"KI_MONITOR_HISTORY": "soon"})); err == nil {
+		t.Fatal("invalid duration: want error")
+	}
+}
+
+func TestMonitorValidate(t *testing.T) {
+	for name, mod := range map[string]func(*Monitor){
+		"host interval":      func(m *Monitor) { m.HostInterval = 500 * time.Millisecond },
+		"container interval": func(m *Monitor) { m.ContainerInterval = time.Second },
+		"resolution":         func(m *Monitor) { m.HistoryResolution = 0 },
+		"history too long":   func(m *Monitor) { m.History = 25 * time.Hour },
+		"resolution > hist":  func(m *Monitor) { m.HistoryResolution = 2 * time.Hour },
+		"relative path":      func(m *Monitor) { m.DiskPaths = []string{"data"} },
+	} {
+		c := Default()
+		mod(&c.Monitor)
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "monitor.") {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+	c := Default()
+	c.Monitor.History = 24 * time.Hour
+	c.Monitor.DiskPaths = []string{"/", "/var/lib"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

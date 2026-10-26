@@ -81,6 +81,45 @@ type Panel struct {
 	SessionMax time.Duration `yaml:"session_max"`
 }
 
+// Monitor configures resource sampling and in-memory history.
+type Monitor struct {
+	// HostInterval and ContainerInterval are the sampling periods while at
+	// least one client is subscribed.
+	HostInterval      time.Duration `yaml:"host_interval"`
+	ContainerInterval time.Duration `yaml:"container_interval"`
+	// History is how far back samples are kept; HistoryResolution is the
+	// spacing of the retained samples.
+	History           time.Duration `yaml:"history"`
+	HistoryResolution time.Duration `yaml:"history_resolution"`
+	// DiskPaths are the absolute mount points reported; empty selects the
+	// data directory's filesystem.
+	DiskPaths []string `yaml:"disk_paths"`
+}
+
+func (m Monitor) validate() error {
+	if m.HostInterval < time.Second {
+		return errors.New("monitor.host_interval must be at least 1s")
+	}
+	if m.ContainerInterval < 2*time.Second {
+		return errors.New("monitor.container_interval must be at least 2s")
+	}
+	if m.HistoryResolution < time.Second {
+		return errors.New("monitor.history_resolution must be at least 1s")
+	}
+	if m.History > 24*time.Hour {
+		return errors.New("monitor.history must not exceed 24h")
+	}
+	if m.HistoryResolution > m.History {
+		return errors.New("monitor.history_resolution must not exceed monitor.history")
+	}
+	for _, p := range m.DiskPaths {
+		if !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("monitor.disk_paths entry %q must be an absolute path", p)
+		}
+	}
+	return nil
+}
+
 // checkLoopbackAddr validates a loopback host:port and returns the port.
 func checkLoopbackAddr(key, addr string) (int, error) {
 	host, port, err := net.SplitHostPort(addr)
@@ -382,6 +421,7 @@ type Config struct {
 	Webhooks Webhooks `yaml:"webhooks"`
 	Deploys  Deploys  `yaml:"deploys"`
 	Edge     Edge     `yaml:"edge"`
+	Monitor  Monitor  `yaml:"monitor"`
 
 	ControlPlane ControlPlane `yaml:"control_plane"`
 }
@@ -401,6 +441,12 @@ func Default() Config {
 			EdgeListen:        "127.0.0.1:8092",
 			HeartbeatInterval: 15 * time.Second,
 			HeartbeatTimeout:  45 * time.Second,
+		},
+		Monitor: Monitor{
+			HostInterval:      15 * time.Second,
+			ContainerInterval: 30 * time.Second,
+			History:           time.Hour,
+			HistoryResolution: 15 * time.Second,
 		},
 		Panel: Panel{Enabled: true, SessionIdle: 12 * time.Hour, SessionMax: 7 * 24 * time.Hour},
 		ControlPlane: ControlPlane{
@@ -553,6 +599,24 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 			return err
 		}
 	}
+	for key, dst := range map[string]*time.Duration{
+		"KI_MONITOR_HOST_INTERVAL":      &cfg.Monitor.HostInterval,
+		"KI_MONITOR_CONTAINER_INTERVAL": &cfg.Monitor.ContainerInterval,
+		"KI_MONITOR_HISTORY":            &cfg.Monitor.History,
+		"KI_MONITOR_HISTORY_RESOLUTION": &cfg.Monitor.HistoryResolution,
+	} {
+		if err := dur(key, dst); err != nil {
+			return err
+		}
+	}
+	if v, ok := lookup("KI_MONITOR_DISK_PATHS"); ok {
+		cfg.Monitor.DiskPaths = nil
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				cfg.Monitor.DiskPaths = append(cfg.Monitor.DiskPaths, p)
+			}
+		}
+	}
 	str("KI_CONTROL_PLANE_URL", &cfg.ControlPlane.URL)
 	str("KI_CONTROL_PLANE_TOKEN_FILE", &cfg.ControlPlane.TokenFile)
 	str("KI_CONTROL_PLANE_CA_FILE", &cfg.ControlPlane.CAFile)
@@ -611,6 +675,9 @@ func (c *Config) Validate() error {
 		}
 	}
 	if err := c.validateAPI(); err != nil {
+		return err
+	}
+	if err := c.Monitor.validate(); err != nil {
 		return err
 	}
 	return c.Panel.validate()
