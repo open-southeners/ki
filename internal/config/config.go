@@ -431,6 +431,23 @@ type Edge struct {
 	WebhooksPort int `yaml:"webhooks_port"`
 }
 
+// Tunnel configures the managed Cloudflare Tunnel connector. Its ingress
+// (public hostnames) is managed in Cloudflare; the token is stored through
+// the tunnel.configure method, never in this file.
+type Tunnel struct {
+	// Enabled runs the connector once a token is configured.
+	Enabled bool `yaml:"enabled"`
+	// MetricsPort is the loopback port of the connector's /ready endpoint.
+	MetricsPort int `yaml:"metrics_port"`
+}
+
+func (t Tunnel) validate() error {
+	if !validPort(t.MetricsPort) {
+		return fmt.Errorf("tunnel.metrics_port %d must be between 1 and 65535", t.MetricsPort)
+	}
+	return nil
+}
+
 func validPort(n int) bool { return n >= 1 && n <= 65535 }
 
 func (e Edge) validate() error {
@@ -487,6 +504,7 @@ type Config struct {
 	Webhooks Webhooks `yaml:"webhooks"`
 	Deploys  Deploys  `yaml:"deploys"`
 	Edge     Edge     `yaml:"edge"`
+	Tunnel   Tunnel   `yaml:"tunnel"`
 	Monitor  Monitor  `yaml:"monitor"`
 
 	ControlPlane ControlPlane `yaml:"control_plane"`
@@ -501,6 +519,7 @@ func Default() Config {
 		Docker:   Docker{Host: "unix:///var/run/docker.sock", CLI: "docker"},
 		Webhooks: Webhooks{MaxBodyBytes: 5 << 20},
 		Edge:     Edge{Enabled: true, Mode: EdgeModeFront, BehindListen: "127.0.0.1:8480", HTTPPort: 80, HTTPSPort: 443, WebhooksPort: 8090},
+		Tunnel:   Tunnel{MetricsPort: 20241},
 		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20, Pull: PullAlways},
 		API: API{
 			Listen:            "127.0.0.1:8091",
@@ -616,6 +635,20 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 			return fmt.Errorf("KI_EDGE_ENABLED: %w", err)
 		}
 		cfg.Edge.Enabled = b
+	}
+	if v, ok := lookup("KI_TUNNEL_ENABLED"); ok {
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("KI_TUNNEL_ENABLED: %w", err)
+		}
+		cfg.Tunnel.Enabled = b
+	}
+	{
+		n := int64(cfg.Tunnel.MetricsPort)
+		if err := num("KI_TUNNEL_METRICS_PORT", &n); err != nil {
+			return err
+		}
+		cfg.Tunnel.MetricsPort = int(n)
 	}
 	str("KI_EDGE_IMAGE", &cfg.Edge.Image)
 	str("KI_EDGE_DOMAIN", &cfg.Edge.Domain)
@@ -734,6 +767,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Edge.Enabled {
 		if err := c.Edge.validate(); err != nil {
+			return err
+		}
+	}
+	if c.Tunnel.Enabled {
+		if err := c.Tunnel.validate(); err != nil {
 			return err
 		}
 	}

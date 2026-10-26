@@ -402,6 +402,26 @@ func TestEdgeDefaultsEnv(t *testing.T) {
 	}
 }
 
+func TestTunnelDefaultsEnv(t *testing.T) {
+	if d := Default().Tunnel; d.Enabled || d.MetricsPort != 20241 {
+		t.Fatalf("defaults = %+v", d)
+	}
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_TUNNEL_ENABLED": "true", "KI_TUNNEL_METRICS_PORT": "20300",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Tunnel.Enabled || cfg.Tunnel.MetricsPort != 20300 {
+		t.Fatalf("env tunnel = %+v", cfg.Tunnel)
+	}
+	if _, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_TUNNEL_ENABLED": "true", "KI_TUNNEL_METRICS_PORT": "70000",
+	})); err == nil {
+		t.Error("metrics port 70000 accepted")
+	}
+}
+
 func TestEdgeValidation(t *testing.T) {
 	tests := []struct {
 		name string

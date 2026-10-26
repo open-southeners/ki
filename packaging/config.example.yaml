@@ -111,6 +111,16 @@ edge:
   # Loopback port used for the webhook listener when webhooks.listen is empty.
   webhooks_port: 8090
 
+# Managed Cloudflare Tunnel: lets the server be reached without a public IP or
+# open ports. Create the tunnel in Cloudflare, point its public hostnames at
+# http://localhost:8480 (use edge.mode: behind) and store the token with
+# `ki-agent tunnel configure --token-stdin`. The token is never kept here.
+tunnel:
+  # Run the connector once a token is configured.
+  enabled: false
+  # Loopback port of the connector's readiness endpoint (/ready).
+  metrics_port: 20241
+
 # Resource monitoring (stats). The agent always samples the host and the
 # managed containers in the background at the base intervals below, and
 # faster (down to 1s for the host, 2s for containers) while a client is
