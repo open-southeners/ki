@@ -420,6 +420,21 @@ export interface EdgeStatus {
   routes: number;
 }
 
+// ------------------------------------------------------------------ tunnel
+
+export interface TunnelStatus {
+  enabled: boolean;
+  state: "disabled" | "unconfigured" | "starting" | "connected" | "disconnected" | "error";
+  /** Whether a token is stored (the token itself is never returned). */
+  configured: boolean;
+  /** The connector reports an active connection to Cloudflare. */
+  ready: boolean;
+  connections: number;
+  image: string;
+  last_error?: string;
+  warnings: string[];
+}
+
 export interface EdgeCSRResult {
   hostname: string;
   csr: string;
@@ -548,6 +563,7 @@ export interface MethodMap {
   };
   "containers.stats.unsubscribe": { params: { subscription: SubscriptionID }; result: Record<string, never> };
   "aws.status": { params: undefined; result: AwsStatus };
+  "tunnel.status": { params: undefined; result: TunnelStatus };
   "edge.status": { params: undefined; result: EdgeStatus };
   "edge.csr": { params: { hostname: string }; result: EdgeCSRResult };
   "edge.certificate.install": { params: { hostname: string; certificate: string }; result: EdgeStatus };

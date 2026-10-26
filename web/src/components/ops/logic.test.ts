@@ -6,6 +6,7 @@ import {
   awsAgentBadge,
   failureReasonText,
   isWildcardName,
+  tunnelBadge,
   containersRunning,
   deployErrorText,
   deployStatusBadge,
@@ -162,6 +163,17 @@ describe("rollback targets", () => {
     expect(rollbackTargets(list).map((d) => d.id)).toEqual([4, 2]);
     expect(previousGood(list)?.id).toBe(2);
     expect(previousGood([deploy(1, "succeeded")])).toBeUndefined();
+  });
+});
+
+describe("tunnel helpers", () => {
+  test("tunnelBadge", () => {
+    expect(tunnelBadge("connected").tone).toBe("success");
+    expect(tunnelBadge("starting").tone).toBe("warning");
+    expect(tunnelBadge("disconnected").tone).toBe("warning");
+    expect(tunnelBadge("error").tone).toBe("destructive");
+    expect(tunnelBadge("unconfigured").label).toBe("no token");
+    expect(tunnelBadge("disabled").label).toBe("disabled");
   });
 });
 

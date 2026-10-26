@@ -67,6 +67,7 @@ export function createApi(rpc: RpcClient) {
     },
     host: { stats: m("host.stats") },
     aws: { status: m("aws.status") },
+    tunnel: { status: m("tunnel.status") },
     edge: {
       status: m("edge.status"),
       csr: m("edge.csr"),

@@ -14,6 +14,7 @@ import {
   type Project,
   type ProjectService,
   type ServiceState,
+  type TunnelStatus,
 } from "@/lib/types";
 
 export type BadgeTone = "default" | "secondary" | "outline" | "success" | "warning" | "destructive";
@@ -273,6 +274,26 @@ export function awsAgentBadge(a: Pick<AwsAgent, "installed" | "active" | "enable
   if (!a.installed) return { tone: "secondary", label: "not installed" };
   if (a.active) return { tone: "success", label: "active" };
   return { tone: "warning", label: a.enabled ? "enabled, not running" : "inactive" };
+}
+
+// ------------------------------------------------------------------ tunnel
+
+/** State of the Cloudflare Tunnel connector as one badge. */
+export function tunnelBadge(s: TunnelStatus["state"]): BadgeSpec {
+  switch (s) {
+    case "connected":
+      return { tone: "success", label: "connected" };
+    case "starting":
+      return { tone: "warning", label: "starting" };
+    case "disconnected":
+      return { tone: "warning", label: "disconnected" };
+    case "error":
+      return { tone: "destructive", label: "error" };
+    case "unconfigured":
+      return { tone: "outline", label: "no token" };
+    default:
+      return { tone: "secondary", label: "disabled" };
+  }
 }
 
 /** Whether a certificate name is a wildcard (*.example.com). */

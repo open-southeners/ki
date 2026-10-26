@@ -24,6 +24,7 @@ import { errorMessage } from "@/lib/errors";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { useApi } from "@/lib/rpc-context";
 import { isWildcardName } from "@/components/ops/logic";
+import { TunnelCard } from "@/components/ops/TunnelCard";
 import type { EdgeCertificate, EdgeStatus } from "@/lib/types";
 
 const KEY = ["admin", "edge"] as const;
@@ -84,6 +85,10 @@ export default function Edge() {
                 </div>
               </Alert>
             )}
+
+            <div className="mb-6 md:max-w-md">
+              <TunnelCard />
+            </div>
 
             <Section title="Status">
               <dl className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-md border bg-card p-4 sm:grid-cols-2 lg:grid-cols-3">

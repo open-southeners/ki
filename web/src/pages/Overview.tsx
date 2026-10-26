@@ -4,6 +4,7 @@ import { AwsCard } from "@/components/ops/AwsCard";
 import { EdgeCard } from "@/components/ops/EdgeCard";
 import { HostPanel } from "@/components/ops/HostPanel";
 import { ProjectsCard } from "@/components/ops/ProjectsTable";
+import { TunnelCard } from "@/components/ops/TunnelCard";
 
 /** Host load (live + 1 h history), projects summary and edge status. */
 export default function Overview() {
@@ -28,6 +29,12 @@ export default function Overview() {
             Edge
           </h2>
           <EdgeCard />
+        </section>
+        <section aria-labelledby="ov-tunnel" className="grid gap-3 md:max-w-md">
+          <h2 id="ov-tunnel" className="sr-only">
+            Tunnel
+          </h2>
+          <TunnelCard />
         </section>
         <section aria-labelledby="ov-aws" className="grid gap-3 md:max-w-md">
           <h2 id="ov-aws" className="sr-only">
