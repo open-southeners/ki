@@ -1,0 +1,50 @@
+{
+  "read": "2026-03-04T10:15:30.5Z",
+  "preread": "0001-01-01T00:00:00Z",
+  "pids_stats": {"current": 3},
+  "blkio_stats": {
+    "io_service_bytes_recursive": [
+      {"major": 8, "minor": 0, "op": "Read", "value": 65536},
+      {"major": 8, "minor": 0, "op": "Write", "value": 131072},
+      {"major": 8, "minor": 0, "op": "Sync", "value": 196608},
+      {"major": 8, "minor": 0, "op": "Async", "value": 0},
+      {"major": 8, "minor": 0, "op": "Discard", "value": 0},
+      {"major": 8, "minor": 0, "op": "Total", "value": 196608}
+    ],
+    "io_serviced_recursive": [{"major": 8, "minor": 0, "op": "Read", "value": 16}],
+    "io_queue_recursive": [],
+    "io_service_time_recursive": [],
+    "io_wait_time_recursive": [],
+    "io_merged_recursive": [],
+    "io_time_recursive": [],
+    "sectors_recursive": []
+  },
+  "num_procs": 0,
+  "storage_stats": {},
+  "cpu_stats": {
+    "cpu_usage": {
+      "total_usage": 400000000,
+      "percpu_usage": [100000000, 100000000, 100000000, 100000000],
+      "usage_in_kernelmode": 100000000,
+      "usage_in_usermode": 300000000
+    },
+    "system_cpu_usage": 55555000000000,
+    "throttling_data": {"periods": 0, "throttled_periods": 0, "throttled_time": 0}
+  },
+  "precpu_stats": {
+    "cpu_usage": {"total_usage": 0, "usage_in_kernelmode": 0, "usage_in_usermode": 0},
+    "throttling_data": {"periods": 0, "throttled_periods": 0, "throttled_time": 0}
+  },
+  "memory_stats": {
+    "usage": 41943040,
+    "max_usage": 47185920,
+    "stats": {"active_anon": 1048576, "active_file": 8388608, "cache": 33554432, "inactive_anon": 0, "inactive_file": 1048576, "total_cache": 33554432, "total_inactive_file": 25165824, "total_rss": 4194304},
+    "failcnt": 0,
+    "limit": 2147483648
+  },
+  "name": "/shop-web-1",
+  "id": "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "networks": {
+    "eth0": {"rx_bytes": 2048, "rx_packets": 20, "rx_errors": 0, "rx_dropped": 0, "tx_bytes": 1024, "tx_packets": 10, "tx_errors": 0, "tx_dropped": 0}
+  }
+}

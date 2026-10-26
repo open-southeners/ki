@@ -5,6 +5,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -364,6 +365,59 @@ func removed(err error, id string) (gone bool, _ error) {
 		return true, nil
 	}
 	return false, mapErr(err, id)
+}
+
+// Stats implements runtime.Runtime. It takes a single one-shot sample.
+func (d *Docker) Stats(ctx context.Context, id string) (runtime.StatsSnapshot, error) {
+	if _, err := d.inspect(ctx, id); err != nil {
+		return runtime.StatsSnapshot{}, err
+	}
+	res, err := d.cli.ContainerStats(ctx, id, client.ContainerStatsOptions{})
+	if err != nil {
+		return runtime.StatsSnapshot{}, mapErr(err, id)
+	}
+	defer res.Body.Close()
+	var raw container.StatsResponse
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return runtime.StatsSnapshot{}, fmt.Errorf("decode stats of %s: %w", id, err)
+	}
+	return snapshot(raw), nil
+}
+
+// snapshot converts an engine stats record, handling the cgroup v1 and v2
+// shapes.
+func snapshot(raw container.StatsResponse) runtime.StatsSnapshot {
+	s := runtime.StatsSnapshot{
+		Read:        raw.Read,
+		CPUTotalNs:  raw.CPUStats.CPUUsage.TotalUsage,
+		SystemCPUNs: raw.CPUStats.SystemUsage,
+		OnlineCPUs:  raw.CPUStats.OnlineCPUs,
+		MemUsage:    raw.MemoryStats.Usage,
+		MemLimit:    raw.MemoryStats.Limit,
+		Pids:        raw.PidsStats.Current,
+	}
+	if s.OnlineCPUs == 0 {
+		s.OnlineCPUs = uint32(len(raw.CPUStats.CPUUsage.PercpuUsage))
+	}
+	for _, k := range []string{"total_inactive_file", "inactive_file", "cache"} {
+		if v, ok := raw.MemoryStats.Stats[k]; ok {
+			s.MemInactiveFile = v
+			break
+		}
+	}
+	for _, n := range raw.Networks {
+		s.NetRx += n.RxBytes
+		s.NetTx += n.TxBytes
+	}
+	for _, e := range raw.BlkioStats.IoServiceBytesRecursive {
+		switch strings.ToLower(e.Op) {
+		case "read":
+			s.BlkRead += e.Value
+		case "write":
+			s.BlkWrite += e.Value
+		}
+	}
+	return s
 }
 
 // lineWriter splits a byte stream into lines and hands them to fn.

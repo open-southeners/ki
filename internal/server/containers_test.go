@@ -149,3 +149,7 @@ func TestContainersOverUnixSocket(t *testing.T) {
 		t.Fatalf("last update = %s, want eof", ups[2].Data)
 	}
 }
+
+func (s *stubRuntime) Stats(context.Context, string) (runtime.StatsSnapshot, error) {
+	return runtime.StatsSnapshot{}, nil
+}

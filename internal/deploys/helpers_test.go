@@ -314,3 +314,7 @@ func triggerReason(err error) string {
 	}
 	return ""
 }
+
+func (f *fakeRT) Stats(context.Context, string) (runtime.StatsSnapshot, error) {
+	return runtime.StatsSnapshot{}, nil
+}

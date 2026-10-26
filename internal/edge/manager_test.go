@@ -397,3 +397,7 @@ func TestStatusReflectsInstallImmediately(t *testing.T) {
 		}
 	}
 }
+
+func (f *fakeRuntime) Stats(context.Context, string) (runtime.StatsSnapshot, error) {
+	return runtime.StatsSnapshot{}, nil
+}

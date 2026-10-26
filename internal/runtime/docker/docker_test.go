@@ -28,6 +28,7 @@ type fakeEngine struct {
 	labels   map[string]map[string]string // id -> labels
 	tty      bool
 	logBody  []byte
+	stats    []byte // body of GET /containers/{id}/stats
 	stop     func() // stops the fake API server
 }
 
@@ -118,6 +119,8 @@ func (f *fakeEngine) serve(w http.ResponseWriter, r *http.Request) {
 			"Mounts":          []map[string]any{{"Type": "bind", "Source": "/srv/data", "Destination": "/data", "RW": false}},
 			"NetworkSettings": map[string]any{"Networks": map[string]any{"zeta": map[string]any{"IPAddress": "172.20.0.5"}, "alpha": map[string]any{"IPAddress": ""}}},
 		})
+	case strings.HasSuffix(path, "/stats"):
+		w.Write(f.stats)
 	case strings.HasSuffix(path, "/logs"):
 		w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
 		w.Write(f.logBody)

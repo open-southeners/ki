@@ -361,3 +361,7 @@ func TestLogsUnsubscribeStopsStream(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+func (f *fakeRuntime) Stats(context.Context, string) (runtime.StatsSnapshot, error) {
+	return runtime.StatsSnapshot{}, nil
+}

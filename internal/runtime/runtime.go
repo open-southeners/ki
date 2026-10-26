@@ -119,6 +119,37 @@ type PruneReport struct {
 	KeptVolumes []string `json:"kept_volumes"`
 }
 
+// StatsSnapshot is one raw, cumulative resource reading of a container. Rates
+// and percentages are derived by comparing consecutive snapshots; nothing here
+// is pre-computed. Fields the engine does not report are zero.
+type StatsSnapshot struct {
+	// Read is when the engine took the sample.
+	Read time.Time `json:"read"`
+	// CPUTotalNs is the cumulative CPU time the container used.
+	CPUTotalNs uint64 `json:"cpu_total_ns"`
+	// SystemCPUNs is the cumulative CPU time of the whole host, the
+	// denominator for CPU percent.
+	SystemCPUNs uint64 `json:"system_cpu_ns"`
+	// OnlineCPUs is the number of CPUs the host reports online.
+	OnlineCPUs uint32 `json:"online_cpus"`
+	// MemUsage is the memory in use in bytes, including reclaimable cache.
+	MemUsage uint64 `json:"mem_usage"`
+	// MemInactiveFile is the reclaimable inactive file cache in bytes
+	// (cgroup v2 inactive_file, v1 total_inactive_file or cache); subtract it
+	// from MemUsage for the working set.
+	MemInactiveFile uint64 `json:"mem_inactive_file"`
+	// MemLimit is the memory limit in bytes (the host total when unlimited).
+	MemLimit uint64 `json:"mem_limit"`
+	// NetRx and NetTx are cumulative bytes over all network interfaces.
+	NetRx uint64 `json:"net_rx"`
+	NetTx uint64 `json:"net_tx"`
+	// BlkRead and BlkWrite are cumulative block-device bytes.
+	BlkRead  uint64 `json:"blk_read"`
+	BlkWrite uint64 `json:"blk_write"`
+	// Pids is the current number of processes.
+	Pids uint64 `json:"pids"`
+}
+
 // Runtime manages ki-managed containers. Every operation on an id first
 // confirms the container carries LabelManaged=true and otherwise fails with
 // ErrNotManaged; unmanaged containers are invisible and untouchable.
@@ -128,6 +159,8 @@ type Runtime interface {
 	// List returns managed containers, of one project or (project == "") all.
 	List(ctx context.Context, project string) ([]Container, error)
 	Inspect(ctx context.Context, id string) (ContainerDetail, error)
+	// Stats takes one non-streaming resource reading of a container.
+	Stats(ctx context.Context, id string) (StatsSnapshot, error)
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string, timeout time.Duration) error
 	Restart(ctx context.Context, id string, timeout time.Duration) error
