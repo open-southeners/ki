@@ -20,7 +20,7 @@ func TestMigrationFromV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Roll the database back to a v1 schema.
-	for _, q := range []string{`DROP TABLE exposure_domains`, `DROP TABLE project_exposures`, `DROP TABLE deploy_logs`, `DROP TABLE deploys`, `DROP TABLE project_env`, `PRAGMA user_version = 1`} {
+	for _, q := range []string{`DROP TABLE audit_log`, `DROP TABLE api_tokens`, `DROP TABLE sessions`, `DROP TABLE setup_tokens`, `DROP TABLE users`, `DROP TABLE exposure_domains`, `DROP TABLE project_exposures`, `DROP TABLE deploy_logs`, `DROP TABLE deploys`, `DROP TABLE project_env`, `PRAGMA user_version = 1`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}

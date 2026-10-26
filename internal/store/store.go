@@ -94,6 +94,62 @@ var migrations = []string{
 		service    TEXT NOT NULL,
 		source     TEXT NOT NULL
 	)`,
+	`CREATE TABLE users (
+		id                INTEGER PRIMARY KEY AUTOINCREMENT,
+		username          TEXT NOT NULL,
+		role              TEXT NOT NULL,
+		status            TEXT NOT NULL CHECK (status IN ('pending', 'active', 'disabled')),
+		password_hash     TEXT NOT NULL DEFAULT '',
+		totp_secret_enc   BLOB NOT NULL DEFAULT x'',
+		totp_pending_enc  BLOB NOT NULL DEFAULT x'',
+		totp_last_counter INTEGER NOT NULL DEFAULT 0,
+		failed_logins     INTEGER NOT NULL DEFAULT 0,
+		locked_until      TEXT,
+		created_at        TEXT NOT NULL,
+		updated_at        TEXT NOT NULL,
+		last_login_at     TEXT,
+		UNIQUE (username)
+	);
+	CREATE TABLE setup_tokens (
+		token_hash BLOB PRIMARY KEY,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		used_at    TEXT
+	);
+	CREATE INDEX setup_tokens_user_id_idx ON setup_tokens (user_id);
+	CREATE TABLE sessions (
+		token_hash BLOB PRIMARY KEY,
+		user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TEXT NOT NULL,
+		last_seen  TEXT NOT NULL,
+		ip         TEXT NOT NULL DEFAULT '',
+		user_agent TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX sessions_user_id_idx ON sessions (user_id);
+	CREATE TABLE api_tokens (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT NOT NULL,
+		token_hash BLOB NOT NULL,
+		role       TEXT NOT NULL,
+		created_by TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL,
+		expires_at TEXT,
+		last_used  TEXT,
+		revoked    INTEGER NOT NULL DEFAULT 0,
+		UNIQUE (name),
+		UNIQUE (token_hash)
+	);
+	CREATE TABLE audit_log (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		at             TEXT NOT NULL,
+		principal_kind TEXT NOT NULL DEFAULT '',
+		principal_name TEXT NOT NULL DEFAULT '',
+		ip             TEXT NOT NULL DEFAULT '',
+		event          TEXT NOT NULL,
+		target         TEXT NOT NULL DEFAULT '',
+		result         TEXT NOT NULL DEFAULT ''
+	)`,
 }
 
 // Project is a persisted project row.
