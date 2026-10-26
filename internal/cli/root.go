@@ -50,6 +50,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newContainersCmd(&f))
 	cmd.AddCommand(newServicesCmd(&f))
 	cmd.AddCommand(newAWSCmd(&f))
+	cmd.AddCommand(newTunnelCmd(&f))
 
 	return cmd
 }
