@@ -67,6 +67,22 @@ go build -o ki-agent ./cmd/ki-agent
 Stamp a release version with
 `-ldflags "-X github.com/open-southeners/ki-agent/internal/version.Version=1.2.3"`.
 
+### Web panel
+
+The release binary embeds the panel. To build it from source you need
+[bun](https://bun.sh) (1.4); without it the agent still builds and serves a
+minimal sign-in page.
+
+```sh
+cd web && bun install --frozen-lockfile && bun run build   # writes internal/panel/dist
+cd .. && go build -o ki-agent ./cmd/ki-agent               # embeds it
+```
+
+For frontend work run the agent (the panel listens on `127.0.0.1:8091`) and
+`cd web && bun run dev`: Vite serves the app on `http://localhost:5173` and
+proxies `/rpc` and `/auth` to `127.0.0.1:8091`. `bun run typecheck` and
+`bun run test` check the code.
+
 ## Run
 
 ```sh
@@ -323,6 +339,18 @@ leaves the containers as they are; the reason (`policy_violation`,
 `build_failed`, `health_failed`, ...) is shown by the command and by
 `ki-agent deploys get <id>`.
 
+**Rolling back.** `ki-agent deploys rollback app` deploys the previous good
+version again: the commit of the newest successful deploy before the latest
+one (`--to <deploy-id>` picks a specific successful deploy; `--detach` returns
+at once). It is a normal deploy of that exact commit, so the safety policy,
+build and health checks all run again, and it is marked `rollback_of` in
+`deploys get`. A commit that was force-pushed away fails at the fetch stage.
+
+**Services.** `ki-agent services list app` shows each service with its state
+(`running`, `partial`, `stopped`, `unhealthy`, `missing`), containers and
+health; `ki-agent services start|stop|restart app web` acts on every container
+of a service.
+
 The Compose file is never run as written. The agent normalizes it, checks it
 against the safety policy below and runs exactly that checked, labelled model.
 Services, networks and volumes get `ki.managed`, `ki.project` and `ki.service`
@@ -425,6 +453,25 @@ were removed before the first release. Replace `websocket.listen` with
 `api.heartbeat_interval` / `api.heartbeat_timeout`, `KI_WEBSOCKET_*` with
 `KI_API_*`, and create tokens with `ki-agent tokens create` instead of a token
 file. The agent refuses to start while a `websocket:` key remains.
+
+## Web panel
+
+Sign in at the panel (`https://<your host>/`, or `http://127.0.0.1:8091/` on the
+server) after following the setup link from `ki-agent panel setup`. It follows
+the system light or dark theme, shows the connection state in the header and
+hides the actions your role does not allow.
+
+| Page | What it does | Role |
+|---|---|---|
+| Overview | Live host CPU, load, memory, swap, disk and network with the last hour of history, a summary of every project and the edge status | viewer |
+| Projects | All projects with status, last deploy and service health | viewer |
+| Project | Repository and trigger, the services table (state, health, containers, exposure links), deploy history with a live log, container logs and stats | viewer |
+| Project: Deploy now, Rollback, start/stop/restart a service | Trigger a deploy (optionally of another ref), return to a previous good deploy, act on a service | operator |
+| Users | Create users (shows the setup link), change roles, disable, reset, delete | admin |
+| API tokens | Create (the secret is shown once) and revoke | admin |
+| Audit log | Who did what, paged | admin |
+| Environment, Exposure | Set and unset a project's variables (names only are shown) and publish or unpublish services | admin |
+| Edge | Proxy state, ports, certificates and routes | admin |
 
 ## Exposing services
 

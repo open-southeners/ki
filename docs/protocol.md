@@ -41,8 +41,8 @@ minimum role it needs (`x-role` in the OpenRPC document). Roles are ordered
 
 | Role | Methods |
 |---|---|
-| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `auth.whoami` |
-| `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger` |
+| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `auth.whoami` |
+| `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger`, `deploys.rollback`, `projects.services.start`/`stop`/`restart` |
 | `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
 
 A call below the required role fails with `-32001` and the message
@@ -124,9 +124,18 @@ accepted once). The HTTP endpoints below are JSON.
   not keep the cookie. A session ends after `panel.session_idle` (12 hours)
   without use or `panel.session_max` (7 days) after sign-in. Only a hash of the
   session id is stored.
-- Responses carry `Content-Security-Policy: default-src 'self'`,
-  `frame-ancestors 'none'`, `Referrer-Policy: no-referrer` and
-  `X-Content-Type-Options: nosniff`; `/auth/*` responses are `no-store`.
+- Responses carry `Referrer-Policy: no-referrer` and
+  `X-Content-Type-Options: nosniff`; `/auth/*` responses are `no-store`. The
+  built-in sign-in page (served while the web app is not built in) carries
+  `Content-Security-Policy: default-src 'self'` and `frame-ancestors 'none'`.
+  The web app carries
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`.
+  Scripts are never inline and never from another origin. `style-src` allows
+  `'unsafe-inline'` only because Radix/shadcn components position popovers,
+  menus and tooltips with `style` attributes, which a nonce cannot cover;
+  `data:` images exist only for the TOTP QR code shown at setup. The app is
+  served for every path except `/auth/*`, `/rpc` and `/hooks/*` (client-side
+  routing); a missing file under `/assets/` is a 404.
 
 ### API tokens
 
@@ -302,7 +311,8 @@ missing lines.
 ### Projects
 
 The `projects` capability covers `projects.create`, `projects.get`,
-`projects.list`, `projects.update`, `projects.verify` and `projects.delete`.
+`projects.list`, `projects.update`, `projects.verify`, `projects.delete` and the
+service methods (see [Services](#services)).
 Schemas are in the OpenRPC document; this section holds what a schema cannot
 say.
 
@@ -355,6 +365,25 @@ say.
 `detail` is human readable and has token text redacted. `AlreadyExists`
 (`-32009`) is returned by `projects.create` when the slug is taken.
 
+### Services
+
+`projects.services {slug}` (viewer) returns `{services: [ProjectService]}`. A
+`ProjectService` has `name`, `image?`, `exposure?` (the effective entry of that
+service, see [Exposing a service](#exposing-a-service)), `containers`
+(`id`, `name`, `state`, `status`, `health`, `restart_count`, `started_at?`) and
+`state`. It is built from the last deployed model plus any managed container
+labelled with a service that is not in that model. `state` is `running` (all
+containers running), `partial` (some running), `stopped` (none running),
+`unhealthy` (a container is unhealthy or restarting) or `missing` (in the model
+but with no container).
+
+`projects.services.start`, `.stop` and `.restart` (operator) take `{slug,
+service}`, act on every container of the service (stop and restart wait up to
+10 seconds) and return the updated `ProjectService`. A service that is neither
+in the model nor backed by a container is `-32006`; an unreachable engine is
+`-32008`. The actions are not serialised against a running deploy of the same
+project.
+
 ### Environment variables
 
 `projects.env.set` (`slug`, `vars`: `{NAME: value}`, merged into what is
@@ -375,7 +404,7 @@ are encrypted at rest and never returned by any method.
 
 ### Deploys
 
-The `deploys` capability covers `deploys.trigger`, `deploys.get`,
+The `deploys` capability covers `deploys.trigger`, `deploys.rollback`, `deploys.get`,
 `deploys.list`, `deploys.subscribe`, `deploys.unsubscribe` and the
 `deploys.update` notification. Schemas are in the OpenRPC document; this
 section holds what a schema cannot say.
@@ -383,6 +412,7 @@ section holds what a schema cannot say.
 | Method | Params | Result |
 |---|---|---|
 | `deploys.trigger` | `project`, `ref?` | `Deploy`: `queued`, or `running` if it started at once |
+| `deploys.rollback` | `project`, `deploy?` | `Deploy`: a new deploy of an earlier one (see below) |
 | `deploys.get` | `id` | `Deploy` |
 | `deploys.list` | `project`, `limit?` (default 20, max 100), `before_id?` | `[Deploy]`, newest first |
 | `deploys.subscribe` | `id`, `since_seq?` | `{subscription}`; ordered `deploys.update` stream |
@@ -390,7 +420,7 @@ section holds what a schema cannot say.
 
 A `Deploy` has `id`, `project`, `ref` (normalized), `commit` (resolved sha,
 empty until checked out), `source`, `status`, `stage`, `error` (only when
-`failed`), `created_at`, `started_at` and `finished_at` (`null` until set).
+`failed`), `rollback_of` (only on rollbacks), `created_at`, `started_at` and `finished_at` (`null` until set).
 
 - **Source** is set by the agent: `webhook` for webhook deliveries; `api` for
   `deploys.trigger`, or `cli` when the caller is on the Unix socket.
@@ -456,7 +486,16 @@ empty until checked out), `source`, `status`, `stage`, `error` (only when
   streamed live but not stored, after one `agent` line saying so. The newest
   `deploys.keep` (default 50) deploys per project are kept.
 
-`DeployError` (`-32012`) is returned by `deploys.trigger` for failures that
+- **Rollback.** `deploys.rollback` queues a normal deploy (fetch, policy,
+  build, up, health: nothing is skipped) of the target's `ref` pinned to the
+  target's `commit`, with `rollback_of` set to the target's id. The target is
+  `deploy` (it must belong to the project, have `succeeded` and have a commit)
+  or, when absent, the newest `succeeded` deploy older than the newest
+  `succeeded` one, that is the previous good deploy. Queueing, `source` and
+  errors are those of `deploys.trigger`. A commit that is no longer reachable
+  from its ref (a force-pushed branch) fails at the `fetch` stage.
+
+`DeployError` (`-32012`) is returned by `deploys.trigger` and `deploys.rollback` for failures that
 need no pipeline run, with `data: {reason, detail}`:
 
 | `reason` | Meaning |
@@ -464,6 +503,7 @@ need no pipeline run, with `data: {reason, detail}`:
 | `project_not_ready` | The project is `pending_access` |
 | `ref_not_allowed` | The ref does not match the project's trigger |
 | `ref_not_found` | The ref does not exist on the remote, or no tag matches the pattern |
+| `no_rollback_target` | `deploys.rollback` found no deploy to return to: none succeeded before the newest successful one, or `deploy` is not a successful deploy of the project with a commit |
 
 An unknown project or deploy is `-32006`; repository failures while resolving
 the ref are `-32010`, an unreachable engine `-32008`.
@@ -838,7 +878,7 @@ Errors are JSON-RPC error objects `{code, message, data?}`.
 | -32009 | Already exists | `projects.create` with a slug that is taken; or a domain that is already exposed by another project, with `data` `{domain, project}` (`projects.expose`, and the `edge.*` methods, which add `service`) |
 | -32010 | Repository error | A Git operation failed; `data` is `{reason, detail}`, see [Projects](#projects) |
 | -32011 | Enrollment error | Enrollment failed; `data` is `{reason, detail}`, see [Enrollment](#local-enrollment-methods) |
-| -32012 | Deploy error | `deploys.trigger` was rejected; `data` is `{reason, detail}`, see [Deploys](#deploys) |
+| -32012 | Deploy error | `deploys.trigger` or `deploys.rollback` was rejected; `data` is `{reason, detail}`, see [Deploys](#deploys) |
 
 ## Versioning
 
