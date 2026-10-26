@@ -51,18 +51,23 @@ const (
 	ctrACMEFile   = "/data/acme.json"
 )
 
-// Router priorities. Domain-specific server routes beat project routes; the
-// catch-all for unknown hosts loses to every project route so it can never
-// shadow a project's own paths.
+// Router priorities. Server routes (on server hostnames and IP literals) beat
+// project routes. There is deliberately no catch-all on arbitrary hosts: a
+// path-limited project domain must never fall through to the agent.
 const (
-	prioServer   = 20000
-	prioProject  = 10000
-	prioCatchAll = 1
+	prioServer  = 20000
+	prioProject = 10000
+	// prioServerRoot is the "/" panel route: below the specific server
+	// routes (/hooks/, /rpc, /auth/) but still above project routes.
+	prioServerRoot = 19999
 )
 
 const (
 	resolver       = "le"
 	webhooksSvc    = "ki-webhooks"
+	panelSvc       = "ki-panel"
+	rpcPath        = "/rpc"
+	authPrefix     = "/auth/"
 	entryWeb       = "web"
 	entrySecure    = "websecure"
 	hooksPrefix    = "/hooks/"
@@ -135,6 +140,16 @@ type InstalledCert struct {
 type Model struct {
 	// WebhooksPort is the loopback port of the agent's webhook listener.
 	WebhooksPort int
+	// APIEdgePort is the loopback port of the API's edge listener
+	// (api.edge_listen), the only upstream of the panel and RPC routes. It is
+	// required when PanelEnabled or RPCPublic is set and ignored otherwise.
+	APIEdgePort int
+	// PanelEnabled adds the panel routes (/auth/, / including /setup) and
+	// lets /rpc carry sessions. False routes none of them.
+	PanelEnabled bool
+	// RPCPublic adds /rpc even without the panel (api.public_tokens: bearer
+	// tokens through the edge).
+	RPCPublic bool
 	// ACMEHostname is the standalone server domain ("" if none); it gets an
 	// ACME certificate.
 	ACMEHostname string
@@ -157,13 +172,6 @@ func Dynamic(m Model) ([]byte, error) {
 	services := map[string]any{
 		webhooksSvc: lbService([]string{"http://127.0.0.1:" + strconv.Itoa(m.WebhooksPort)}),
 	}
-	hookRouter := func(rule string, prio int, tls map[string]any) map[string]any {
-		return map[string]any{
-			"rule": rule, "priority": prio, "entryPoints": []string{entrySecure},
-			"service": webhooksSvc, "tls": tls,
-		}
-	}
-
 	// An installed certificate wins over ACME for the same hostname.
 	acmeHost := m.ACMEHostname
 	for _, c := range m.Installed {
@@ -171,13 +179,36 @@ func Dynamic(m Model) ([]byte, error) {
 			acmeHost = ""
 		}
 	}
+	apiRoutes := m.PanelEnabled || m.RPCPublic
+	if apiRoutes {
+		if m.APIEdgePort < 1 || m.APIEdgePort > 65535 {
+			return nil, fmt.Errorf("edge: invalid API edge port %d", m.APIEdgePort)
+		}
+		services[panelSvc] = lbService([]string{"http://127.0.0.1:" + strconv.Itoa(m.APIEdgePort)})
+	}
+	// serverRoutes adds the agent routes for one group of hosts.
+	serverRoutes := func(group, hosts string, tls map[string]any) {
+		route := func(kind, rule, svc string, prio int) {
+			routers["ki-"+kind+"-"+group] = map[string]any{
+				"rule": hosts + " && " + rule, "priority": prio, "entryPoints": []string{entrySecure},
+				"service": svc, "tls": tls,
+			}
+		}
+		route("hooks", "PathPrefix(`"+hooksPrefix+"`)", webhooksSvc, prioServer)
+		if apiRoutes {
+			route("rpc", "Path(`"+rpcPath+"`)", panelSvc, prioServer)
+		}
+		if m.PanelEnabled {
+			route("auth", "PathPrefix(`"+authPrefix+"`)", panelSvc, prioServer)
+			route("panel", "PathPrefix(`/`)", panelSvc, prioServerRoot)
+		}
+	}
 	if acmeHost != "" {
 		rule, err := hostRule([]string{acmeHost})
 		if err != nil {
 			return nil, err
 		}
-		routers["ki-hooks-acme"] = hookRouter(rule+" && PathPrefix(`"+hooksPrefix+"`)", prioServer,
-			map[string]any{"certResolver": resolver})
+		serverRoutes("acme", rule, map[string]any{"certResolver": resolver})
 	}
 	var installedHosts []string
 	for _, c := range m.Installed {
@@ -189,9 +220,11 @@ func Dynamic(m Model) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		routers["ki-hooks-installed"] = hookRouter(rule+" && PathPrefix(`"+hooksPrefix+"`)", prioServer, map[string]any{})
+		serverRoutes("installed", rule, map[string]any{})
 	}
-	routers["ki-hooks-catchall"] = hookRouter("HostRegexp(`^.+$`) && PathPrefix(`"+hooksPrefix+"`)", prioCatchAll, map[string]any{})
+	// Requests addressed to an IP literal (the self-signed fallback) reach
+	// the agent routes; any other unknown host does not.
+	serverRoutes("ip", ipLiteralRule, map[string]any{})
 
 	routes := append([]ProjectRoute(nil), m.Routes...)
 	sort.Slice(routes, func(i, j int) bool {
@@ -252,6 +285,13 @@ func Dynamic(m Model) ([]byte, error) {
 	}
 	return marshalYAML(doc)
 }
+
+// ipLiteralRule matches a Host that is an IPv4 dotted quad or an IPv6 literal.
+// Traefik matches Host/HostRegexp against the lower-cased host with the port
+// removed and IPv6 brackets stripped, so the second alternative sees "::1";
+// optional brackets are tolerated anyway.
+const ipLiteralRule = "(HostRegexp(`^[0-9]{1,3}(\\.[0-9]{1,3}){3}$`) || " +
+	"HostRegexp(`^\\[?[0-9a-f]*:[0-9a-f:.]*\\]?$`))"
 
 // Rule builds the router rule of the route: Host(`a`) || Host(`b`) with an
 // optional && PathPrefix(`/p`). It rejects anything that is not a valid

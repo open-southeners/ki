@@ -69,6 +69,11 @@ type Options struct {
 	Runtime   Runtime
 	Exposures Exposures
 	Logger    *slog.Logger
+	// APIEdgePort, PanelEnabled and RPCPublic feed the panel and RPC routes
+	// ([Model]). The zero values add none, leaving only the webhook routes.
+	APIEdgePort  int
+	PanelEnabled bool
+	RPCPublic    bool
 
 	// interval and backoff bounds override the defaults in tests.
 	interval, minBackoff, maxBackoff time.Duration
@@ -358,7 +363,8 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	model := Model{
 		WebhooksPort: cfg.WebhooksPort, ACMEHostname: cfg.Domain,
 		SelfSignedCert: filepath.Base(self.CertFile), SelfSignedKey: filepath.Base(self.KeyFile),
-		Routes: routes,
+		Routes:      routes,
+		APIEdgePort: m.opt.APIEdgePort, PanelEnabled: m.opt.PanelEnabled, RPCPublic: m.opt.RPCPublic,
 	}
 	for _, c := range installed {
 		model.Installed = append(model.Installed, InstalledCert{Hostname: c.Hostname})

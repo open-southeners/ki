@@ -1,10 +1,10 @@
 http:
     routers:
-        ki-hooks-catchall:
+        ki-hooks-ip:
             entryPoints:
                 - websecure
-            priority: 1
-            rule: HostRegexp(`^.+$`) && PathPrefix(`/hooks/`)
+            priority: 20000
+            rule: (HostRegexp(`^[0-9]{1,3}(\.[0-9]{1,3}){3}$`) || HostRegexp(`^\[?[0-9a-f]*:[0-9a-f:.]*\]?$`)) && PathPrefix(`/hooks/`)
             service: ki-webhooks
             tls: {}
     services:

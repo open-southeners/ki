@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -96,6 +97,67 @@ func TestDynamicMinimal(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden(t, "dynamic_minimal.yaml", b)
+}
+
+func TestDynamicPanelGolden(t *testing.T) {
+	m := sampleModel()
+	m.APIEdgePort, m.PanelEnabled = 8092, true
+	b, err := Dynamic(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "dynamic_panel.yaml", b)
+}
+
+func TestDynamicRPCOnlyGolden(t *testing.T) {
+	m := sampleModel()
+	m.APIEdgePort, m.RPCPublic = 8092, true
+	b, err := Dynamic(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, "dynamic_rpc_public.yaml", b)
+	if strings.Contains(string(b), "ki-auth-") || strings.Contains(string(b), "ki-panel-") {
+		t.Errorf("panel routes without the panel:\n%s", b)
+	}
+}
+
+func TestDynamicNoPanelRoutes(t *testing.T) {
+	m := sampleModel()
+	m.APIEdgePort = 8092 // ignored unless the panel or public RPC is on
+	b, err := Dynamic(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"ki-rpc-", "ki-auth-", "ki-panel", "^.+$"} {
+		if strings.Contains(string(b), bad) {
+			t.Errorf("unexpected %q:\n%s", bad, b)
+		}
+	}
+	if _, err := Dynamic(Model{WebhooksPort: 8090, PanelEnabled: true}); err == nil {
+		t.Error("panel without API edge port accepted")
+	}
+}
+
+func TestIPLiteralRule(t *testing.T) {
+	// Mirror the two HostRegexp alternatives; Traefik hands them the
+	// lower-cased host without port and without IPv6 brackets.
+	v4 := regexp.MustCompile(`^[0-9]{1,3}(\.[0-9]{1,3}){3}$`)
+	v6 := regexp.MustCompile(`^\[?[0-9a-f]*:[0-9a-f:.]*\]?$`)
+	if !strings.Contains(ipLiteralRule, v4.String()) || !strings.Contains(ipLiteralRule, v6.String()) {
+		t.Fatalf("test patterns out of sync with %s", ipLiteralRule)
+	}
+	match := func(h string) bool { return v4.MatchString(h) || v6.MatchString(h) }
+	for _, h := range []string{"203.0.113.7", "::1", "2001:db8::1", "[2001:db8::1]", "::ffff:10.0.0.1"} {
+		if !match(h) {
+			t.Errorf("%q should match", h)
+		}
+	}
+	for _, h := range []string{"shop.example.com", "example.com", "1.2.3", "1.2.3.4.5", "a.b.c.d", "", "localhost", "1.2.3.4:80"} {
+		if match(h) {
+			t.Errorf("%q should not match", h)
+		}
+	}
 }
 
 func TestDynamicRejectsUnsafe(t *testing.T) {
