@@ -46,6 +46,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newTokensCmd(&f))
 	cmd.AddCommand(newPanelCmd(&f))
 	cmd.AddCommand(newAuditCmd(&f))
+	cmd.AddCommand(newStatsCmd(&f))
+	cmd.AddCommand(newContainersCmd(&f))
 
 	return cmd
 }
