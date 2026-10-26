@@ -1,0 +1,46 @@
+{
+  "name": "ki-tunnel",
+  "services": {
+    "cloudflared": {
+      "cap_drop": [
+        "ALL"
+      ],
+      "command": [
+        "tunnel",
+        "--no-autoupdate",
+        "--metrics",
+        "127.0.0.1:20241",
+        "run",
+        "--token-file",
+        "/etc/cloudflared/token"
+      ],
+      "image": "cloudflare/cloudflared:2026.10.0",
+      "labels": {
+        "ki.component": "tunnel",
+        "ki.managed": "true",
+        "ki.tunnel.generation": "0123456789abcdef"
+      },
+      "network_mode": "host",
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "user": "996:995",
+      "volumes": [
+        {
+          "bind": {
+            "create_host_path": false
+          },
+          "read_only": true,
+          "source": "/var/lib/ki-agent/tunnel/secret",
+          "target": "/etc/cloudflared",
+          "type": "bind"
+        }
+      ]
+    }
+  }
+}
