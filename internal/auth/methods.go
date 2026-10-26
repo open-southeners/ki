@@ -1,0 +1,60 @@
+package auth
+
+// MethodRoles maps every RPC method to the minimum role allowed to call it.
+// A method missing from the table is denied by RequireRoles.
+var MethodRoles = map[string]Role{
+	// viewer
+	"rpc.discover":                RoleViewer,
+	"agent.hello":                 RoleViewer,
+	"agent.info":                  RoleViewer,
+	"agent.ping":                  RoleViewer,
+	"agent.heartbeat.subscribe":   RoleViewer,
+	"agent.heartbeat.unsubscribe": RoleViewer,
+	"runtime.info":                RoleViewer,
+	"containers.list":             RoleViewer,
+	"containers.inspect":          RoleViewer,
+	"containers.logs.subscribe":   RoleViewer,
+	"containers.logs.unsubscribe": RoleViewer,
+	"projects.get":                RoleViewer,
+	"projects.list":               RoleViewer,
+	"projects.env.list":           RoleViewer,
+	"deploys.get":                 RoleViewer,
+	"deploys.list":                RoleViewer,
+	"deploys.subscribe":           RoleViewer,
+	"deploys.unsubscribe":         RoleViewer,
+	"edge.status":                 RoleViewer,
+	"auth.whoami":                 RoleViewer,
+
+	// operator
+	"containers.start":   RoleOperator,
+	"containers.stop":    RoleOperator,
+	"containers.restart": RoleOperator,
+	"deploys.trigger":    RoleOperator,
+
+	// admin
+	"containers.remove":        RoleAdmin,
+	"projects.create":          RoleAdmin,
+	"projects.update":          RoleAdmin,
+	"projects.verify":          RoleAdmin,
+	"projects.delete":          RoleAdmin,
+	"projects.env.set":         RoleAdmin,
+	"projects.env.unset":       RoleAdmin,
+	"projects.expose":          RoleAdmin,
+	"projects.unexpose":        RoleAdmin,
+	"edge.csr":                 RoleAdmin,
+	"edge.certificate.install": RoleAdmin,
+	"edge.certificate.remove":  RoleAdmin,
+	"enrollment.start":         RoleAdmin,
+	"enrollment.wait":          RoleAdmin,
+	"enrollment.remove":        RoleAdmin,
+	"users.list":               RoleAdmin,
+	"users.create":             RoleAdmin,
+	"users.update":             RoleAdmin,
+	"users.reset":              RoleAdmin,
+	"users.delete":             RoleAdmin,
+	"panel.setup":              RoleAdmin,
+	"tokens.create":            RoleAdmin,
+	"tokens.list":              RoleAdmin,
+	"tokens.revoke":            RoleAdmin,
+	"audit.list":               RoleAdmin,
+}
