@@ -1100,6 +1100,196 @@
       ]
     },
     {
+      "name": "projects.services",
+      "x-role": "viewer",
+      "summary": "List the services of a project with their containers and health.",
+      "description": "Built from the last deployed model plus any running container labelled with a service that is not in it. A service in the model without a container has state missing. Exposure is the effective exposure entry of the service, when there is one.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "services",
+        "schema": {
+          "type": "object",
+          "required": [
+            "services"
+          ],
+          "properties": {
+            "services": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ProjectService"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "projects.services.start",
+      "x-role": "operator",
+      "summary": "Start every container of a service.",
+      "description": "Starts every container of the service. Returns the updated service. A service that is neither in the deployed model nor backed by a container fails with NotFound. Not serialised against a running deploy.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "service",
+          "description": "Compose service name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "service",
+        "schema": {
+          "$ref": "#/components/schemas/ProjectService"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "projects.services.stop",
+      "x-role": "operator",
+      "summary": "Stop every container of a service.",
+      "description": "Stops every container of the service, with a 10 second grace period. Returns the updated service. A service that is neither in the deployed model nor backed by a container fails with NotFound. Not serialised against a running deploy.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "service",
+          "description": "Compose service name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "service",
+        "schema": {
+          "$ref": "#/components/schemas/ProjectService"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "projects.services.restart",
+      "x-role": "operator",
+      "summary": "Restart every container of a service.",
+      "description": "Restarts every container of the service, with a 10 second grace period. Returns the updated service. A service that is neither in the deployed model nor backed by a container fails with NotFound. Not serialised against a running deploy.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "service",
+          "description": "Compose service name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "service",
+        "schema": {
+          "$ref": "#/components/schemas/ProjectService"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
       "name": "deploys.trigger",
       "x-role": "operator",
       "summary": "Queue a deploy of a project.",
@@ -1121,6 +1311,58 @@
           "schema": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "deploy",
+        "schema": {
+          "$ref": "#/components/schemas/Deploy"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/DeployError"
+        },
+        {
+          "$ref": "#/components/errors/RepositoryError"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "deploys.rollback",
+      "x-role": "operator",
+      "summary": "Re-deploy an earlier successful deploy.",
+      "description": "Queues a normal deploy (the whole pipeline runs again) of the target deploy's ref pinned to the target's commit; the new deploy has rollback_of set to the target. The target is the given deploy, which must belong to the project, have succeeded and have a commit; when deploy is absent it is the newest succeeded deploy older than the newest succeeded one (the previous good deploy). With no such deploy the call fails with DeployError reason no_rollback_target. A commit that is no longer reachable from its ref (force-pushed branch) fails at the fetch stage of the new deploy. Queueing rules are those of deploys.trigger. The source is api, or cli over the Unix socket.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "project",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "deploy",
+          "description": "Deploy id to return to. Defaults to the previous good deploy.",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       ],
@@ -2979,6 +3221,10 @@
             ],
             "description": "Last pipeline stage reached; empty while queued."
           },
+          "rollback_of": {
+            "type": "integer",
+            "description": "Id of the deploy this one re-deploys; present only on rollbacks."
+          },
           "error": {
             "$ref": "#/components/schemas/DeployFailure"
           },
@@ -3062,6 +3308,84 @@
           }
         }
       },
+      "ServiceContainer": {
+        "type": "object",
+        "description": "One container of a ProjectService.",
+        "required": [
+          "id",
+          "name",
+          "state",
+          "status",
+          "health",
+          "restart_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "Container state (running, exited, restarting, ...)."
+          },
+          "status": {
+            "type": "string",
+            "description": "Human-readable status."
+          },
+          "health": {
+            "type": "string",
+            "description": "Health check status (healthy, unhealthy, starting) or empty when the container has no health check."
+          },
+          "restart_count": {
+            "type": "integer"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Absent when the container has never started."
+          }
+        }
+      },
+      "ProjectService": {
+        "type": "object",
+        "description": "One service of a project.",
+        "required": [
+          "name",
+          "containers",
+          "state"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string",
+            "description": "Image from the deployed model, else from a running container; absent when unknown."
+          },
+          "exposure": {
+            "$ref": "#/components/schemas/Exposure"
+          },
+          "containers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceContainer"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "partial",
+              "stopped",
+              "unhealthy",
+              "missing"
+            ],
+            "description": "missing: in the deployed model but without a container. unhealthy: any container is unhealthy or restarting. partial: some, not all, containers are running."
+          }
+        }
+      },
       "DeployError": {
         "type": "object",
         "description": "Data of a DeployError error.",
@@ -3075,7 +3399,8 @@
             "enum": [
               "project_not_ready",
               "ref_not_allowed",
-              "ref_not_found"
+              "ref_not_found",
+              "no_rollback_target"
             ]
           },
           "detail": {
@@ -3347,7 +3672,7 @@
       "AlreadyExists": { "code": -32009, "message": "Project already exists", "data": "Only for domain conflicts (projects.expose, edge.csr, edge.certificate.install): object {domain, project} (edge methods add service) naming the domain and the project that exposes it; absent for a duplicate project." },
       "RepositoryError": { "code": -32010, "message": "Repository error", "data": "Object {reason, detail}; reason is one of invalid_url, unreachable, auth_failed, not_found, ref_not_found, compose_not_found, failed." },
       "EnrollmentError": { "code": -32011, "message": "Enrollment error", "data": "Object {reason, detail}; reason is one of unreachable, invalid_response, denied, expired, failed." },
-      "DeployError": { "code": -32012, "message": "Deploy error", "data": "Object {reason, detail}; reason is one of project_not_ready, ref_not_allowed, ref_not_found; see the DeployError schema." }
+      "DeployError": { "code": -32012, "message": "Deploy error", "data": "Object {reason, detail}; reason is one of project_not_ready, ref_not_allowed, ref_not_found, no_rollback_target; see the DeployError schema." }
     }
   }
 }

@@ -24,6 +24,11 @@ const (
 	MethodExpose   = "projects.expose"
 	MethodUnexpose = "projects.unexpose"
 
+	MethodServices       = "projects.services"
+	MethodServiceStart   = "projects.services.start"
+	MethodServiceStop    = "projects.services.stop"
+	MethodServiceRestart = "projects.services.restart"
+
 	MethodEnvSet   = "projects.env.set"
 	MethodEnvUnset = "projects.env.unset"
 	MethodEnvList  = "projects.env.list"
@@ -48,6 +53,10 @@ func (h *Handlers) Register(r *rpc.Router) {
 	r.Handle(MethodDelete, h.delete)
 	r.Handle(MethodExpose, h.expose)
 	r.Handle(MethodUnexpose, h.unexpose)
+	r.Handle(MethodServices, h.services)
+	r.Handle(MethodServiceStart, h.serviceAction(h.svc.StartService))
+	r.Handle(MethodServiceStop, h.serviceAction(h.svc.StopService))
+	r.Handle(MethodServiceRestart, h.serviceAction(h.svc.RestartService))
 	r.Handle(MethodEnvSet, h.envSet)
 	r.Handle(MethodEnvUnset, h.envUnset)
 	r.Handle(MethodEnvList, h.envList)
@@ -75,6 +84,8 @@ func mapError(err error) error {
 	case errors.As(err, &dc):
 		return rpc.NewError(rpc.CodeAlreadyExists, fmt.Sprintf("domain %q is already exposed by project %q", dc.Domain, dc.Project)).
 			WithData(map[string]string{"domain": dc.Domain, "project": dc.Project})
+	case errors.Is(err, ErrServiceNotFound):
+		return rpc.NewError(rpc.CodeNotFound, "service not found")
 	case errors.Is(err, store.ErrNotFound):
 		return rpc.NewError(rpc.CodeNotFound, "project not found")
 	case errors.Is(err, store.ErrExists):
