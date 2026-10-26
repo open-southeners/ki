@@ -1,8 +1,18 @@
+# Web panel: built with bun, embedded into the agent by the Go build below.
+FROM oven/bun:1.4.2 AS web
+WORKDIR /src/web
+COPY web/package.json web/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY web/ ./
+# vite writes to ../internal/panel/dist (see web/vite.config.ts).
+RUN bun run build
+
 FROM golang:1.26.2-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=web /src/internal/panel/dist ./internal/panel/dist
 ARG VERSION=dev
 ARG COMMIT=dev
 RUN CGO_ENABLED=0 go build -trimpath \

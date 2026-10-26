@@ -6,6 +6,8 @@ project_name: ki-agent
 before:
   hooks:
     - go mod download
+    # The panel is embedded into the binary, so build it first.
+    - sh -c "cd web && bun install --frozen-lockfile && bun run build"
 
 builds:
   - id: ki-agent

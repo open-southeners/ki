@@ -4,6 +4,7 @@
 #   - fmt:   `gofmt -l .` must report nothing.
 #   - vet:   `go vet ./...`.
 #   - test:  `go test ./... -race -count=1`.
+#   - web:   type check, tests and production build of the panel (web/).
 name: CI
 
 on:
@@ -54,5 +55,26 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
+      # Tests run against the committed dist placeholder: the agent then serves
+      # its minimal page, and the panel's SPA tests use their own fixtures.
       - name: go test
         run: go test ./... -race -count=1
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: type check
+        run: bun run typecheck
+      - name: test
+        run: bun run test
+      - name: build
+        run: bun run build
