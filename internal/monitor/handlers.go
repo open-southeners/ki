@@ -165,7 +165,9 @@ func (m *Manager) hostUpdates(sub *rpc.Subscription, id uint64, interval time.Du
 	}
 	for {
 		ch := m.hostNote.wait()
-		send()
+		if sent == 0 {
+			send()
+		}
 		select {
 		case <-sub.Done():
 			return
@@ -174,10 +176,7 @@ func (m *Manager) hostUpdates(sub *rpc.Subscription, id uint64, interval time.Du
 		case <-t.C:
 			send()
 		case <-ch:
-			// A sample arrived: deliver it at once only if nothing was sent yet.
-			if sent == 0 {
-				send()
-			}
+			// A sample arrived; the loop head delivers it if nothing was sent yet.
 		}
 	}
 }
@@ -299,7 +298,9 @@ func (m *Manager) containerUpdates(sub *rpc.Subscription, sid uint64, interval t
 	}
 	for {
 		ch := m.contNot.wait()
-		send()
+		if sent == 0 {
+			send()
+		}
 		select {
 		case <-sub.Done():
 			return
@@ -308,9 +309,7 @@ func (m *Manager) containerUpdates(sub *rpc.Subscription, sid uint64, interval t
 		case <-t.C:
 			send()
 		case <-ch:
-			if sent == 0 {
-				send()
-			}
+			// A round finished; the loop head delivers it if nothing was sent yet.
 		}
 	}
 }

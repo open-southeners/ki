@@ -289,25 +289,28 @@ func TestHostSubscribeWaitsForFirstSample(t *testing.T) {
 
 func TestPerCoreFollowsSubscribers(t *testing.T) {
 	f := newFixture(t, testConfig())
+	f.m.hostSch.min = 20 * time.Millisecond // let the test run fast
 	f.sampleBoth(1)
 	var a, b struct {
 		Subscription string `json:"subscription"`
 	}
-	if err := f.call(t, MethodHostSubscribe, m{"per_core": true}, &a); err != nil {
+	if err := f.call(t, MethodHostSubscribe, m{"per_core": true, "interval_ms": 20}, &a); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.call(t, MethodHostSubscribe, nil, &b); err != nil {
+	if err := f.call(t, MethodHostSubscribe, m{"interval_ms": 20}, &b); err != nil {
 		t.Fatal(err)
 	}
 	if !f.m.host.perCore.Load() {
 		t.Fatal("per-core sampling should be on while a subscriber wants it")
 	}
-	f.sampleBoth(1)
-	f.sampleBoth(1)
+	// Both subscribers get their first update immediately.
+	nextUpdate(t, f.host)
+	nextUpdate(t, f.host)
+	f.sampleBoth(2)
 
 	// The plain subscriber never sees the breakdown; the per-core one does.
-	seen := map[string]bool{}
-	for i := 0; i < 4; i++ {
+	seenA := false
+	for i := 0; i < 20 && !seenA; i++ {
 		u := nextUpdate(t, f.host)
 		var d struct {
 			Sample HostSample `json:"sample"`
@@ -319,10 +322,10 @@ func TestPerCoreFollowsSubscribers(t *testing.T) {
 			if u.Subscription != a.Subscription {
 				t.Fatalf("per-core data sent to the wrong subscription: %s", u.Data)
 			}
-			seen[u.Subscription] = true
+			seenA = true
 		}
 	}
-	if !seen[a.Subscription] {
+	if !seenA {
 		t.Fatal("per-core subscriber never received per-core data")
 	}
 
@@ -465,6 +468,7 @@ func TestContainersStats(t *testing.T) {
 
 func TestContainersStatsEngineDown(t *testing.T) {
 	f := newFixture(t, testConfig())
+	f.m.contSch.min = 20 * time.Millisecond // let the test run fast
 	f.twoContainers()
 	f.sampleBoth(1)
 	f.rt.setErr(runtime.ErrUnavailable)
@@ -487,7 +491,7 @@ func TestContainersStatsEngineDown(t *testing.T) {
 	wantCode(t, f.call(t, MethodContainersSubscribe, m{"id": id1}, nil), rpc.CodeRuntimeUnavailable)
 
 	// A subscription sees the engine going down and coming back.
-	if err := f.call(t, MethodContainersSubscribe, nil, nil); err != nil {
+	if err := f.call(t, MethodContainersSubscribe, m{"interval_ms": 20}, nil); err != nil {
 		t.Fatal(err)
 	}
 	u := nextUpdate(t, f.cont)
@@ -508,13 +512,14 @@ func TestContainersStatsEngineDown(t *testing.T) {
 
 func TestContainersStatsSubscribe(t *testing.T) {
 	f := newFixture(t, testConfig())
+	f.m.contSch.min = 20 * time.Millisecond // let the test run fast
 	f.twoContainers()
 	f.sampleBoth(1)
 
 	var sub struct {
 		Subscription string `json:"subscription"`
 	}
-	if err := f.call(t, MethodContainersSubscribe, m{"project": "app"}, &sub); err != nil {
+	if err := f.call(t, MethodContainersSubscribe, m{"project": "app", "interval_ms": 20}, &sub); err != nil {
 		t.Fatal(err)
 	}
 	u := nextUpdate(t, f.cont)
