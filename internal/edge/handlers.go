@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/open-southeners/ki-agent/internal/edge/certs"
@@ -19,6 +20,9 @@ const (
 	MethodCSR     = "edge.csr"
 	MethodInstall = "edge.certificate.install"
 	MethodRemove  = "edge.certificate.remove"
+	// MethodImport imports a bring-your-own certificate. It carries a
+	// private key, so it is limited to the local socket.
+	MethodImport = "edge.certificate.import"
 )
 
 const paramsPrefix = "invalid params: "
@@ -58,6 +62,8 @@ func NewHandlers(mgr StatusSource, dir string, logger *slog.Logger) *Handlers {
 func (h *Handlers) Register(r *rpc.Router) {
 	r.Use(rpc.AllowTransports([]string{MethodCSR, MethodInstall, MethodRemove},
 		rpc.TransportUnix, rpc.TransportControlPlane))
+	r.Use(rpc.AllowTransports([]string{MethodImport}, rpc.TransportUnix))
+	r.Handle(MethodImport, h.importCert)
 	r.Handle(MethodStatus, h.status)
 	r.Handle(MethodCSR, h.csr)
 	r.Handle(MethodInstall, h.install)
@@ -132,10 +138,58 @@ func (h *Handlers) install(ctx context.Context, _ *rpc.Peer, params json.RawMess
 	return h.mgr.Status(), nil
 }
 
-func (h *Handlers) remove(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
-	var p hostnameParams
+func (h *Handlers) importCert(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+	var p struct {
+		Certificate string `json:"certificate"`
+		Key         string `json:"key"`
+		Server      bool   `json:"server"`
+	}
 	if err := rpc.DecodeParams(params, &p); err != nil {
 		return nil, err
+	}
+	if p.Certificate == "" || p.Key == "" {
+		return nil, rpc.NewError(rpc.CodeInvalidParams, paramsPrefix+"certificate and key are required")
+	}
+	names, err := certs.ImportNames([]byte(p.Certificate), []byte(p.Key), h.now())
+	if err != nil {
+		return nil, rpc.NewError(rpc.CodeInvalidParams, paramsPrefix+err.Error())
+	}
+	if p.Server {
+		// Server hostnames keep the reserved-hostname rule; wildcards never
+		// conflict with project domains.
+		for _, n := range names {
+			if strings.HasPrefix(n, "*.") {
+				continue
+			}
+			if err := h.checkHostname(ctx, n); err != nil {
+				return nil, err
+			}
+		}
+	}
+	imp, err := certs.Import(h.dir, []byte(p.Certificate), []byte(p.Key), p.Server, h.now())
+	if err != nil {
+		return nil, rpc.NewError(rpc.CodeInvalidParams, paramsPrefix+err.Error())
+	}
+	h.log.Info("edge certificate imported", "id", imp.ID, "names", imp.Names, "server", imp.Server)
+	h.mgr.Trigger()
+	return h.mgr.Status(), nil
+}
+
+func (h *Handlers) remove(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+	var p struct {
+		Hostname string `json:"hostname"`
+		ID       string `json:"id"`
+	}
+	if err := rpc.DecodeParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.ID != "" {
+		if err := certs.RemoveImported(h.dir, p.ID); err != nil {
+			return nil, rpc.NewError(rpc.CodeInvalidParams, paramsPrefix+err.Error())
+		}
+		h.log.Info("edge certificate removed", "id", p.ID)
+		h.mgr.Trigger()
+		return h.mgr.Status(), nil
 	}
 	if err := h.checkHostname(ctx, p.Hostname); err != nil {
 		return nil, err

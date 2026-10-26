@@ -128,7 +128,7 @@ func TestEdgeStatus(t *testing.T) {
 	for _, want := range []string{
 		"State", "running", "http 80, https 443", "traefik:v3.1", "srv.example.com",
 		"SHA-256 AA:BB, expires 2036-01-01", "Routes", "3", "Last error", "boom",
-		"HOSTNAME", "installed", "2027-01-01", "shop.example.com", "acme",
+		"NAMES", "SERVER", "installed", "2027-01-01", "shop.example.com", "acme",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)

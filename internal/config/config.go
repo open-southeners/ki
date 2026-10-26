@@ -167,6 +167,13 @@ func (c *Config) validateAPI() error {
 		if listenPort == hooks || edgePort == hooks {
 			return fmt.Errorf("api.listen and api.edge_listen must not use the webhooks port %d", hooks)
 		}
+		if c.Edge.Mode == EdgeModeBehind {
+			_, p, _ := net.SplitHostPort(c.Edge.BehindListen)
+			bp, _ := strconv.Atoi(p)
+			if bp == listenPort || bp == edgePort || bp == hooks {
+				return fmt.Errorf("edge.behind_listen port %d must differ from the api and webhooks ports", bp)
+			}
+		}
 	}
 	if a.HeartbeatInterval <= 0 {
 		return errors.New("api.heartbeat_interval must be positive")
@@ -389,16 +396,33 @@ const (
 	PullMissing = "missing"
 )
 
+// Edge modes.
+const (
+	// EdgeModeFront: the edge owns the public HTTP and HTTPS ports and
+	// obtains certificates.
+	EdgeModeFront = "front"
+	// EdgeModeBehind: the edge listens on loopback plain HTTP only, behind a
+	// front web server that terminates TLS and forwards the migrated domains.
+	EdgeModeBehind = "behind"
+)
+
 // Edge configures the managed reverse proxy that routes project domains.
 type Edge struct {
 	// Enabled turns the managed edge proxy on.
 	Enabled bool `yaml:"enabled"`
 	// Image is the proxy container image; empty selects the pinned default.
 	Image string `yaml:"image"`
-	// HTTPPort and HTTPSPort are the host ports the proxy publishes.
+	// Mode is "front" (default) or "behind".
+	Mode string `yaml:"mode"`
+	// BehindListen is the loopback host:port the proxy binds in behind mode.
+	BehindListen string `yaml:"behind_listen"`
+	// HTTPPort and HTTPSPort are the host ports the proxy publishes in front
+	// mode; behind mode ignores them.
 	HTTPPort  int `yaml:"http_port"`
 	HTTPSPort int `yaml:"https_port"`
-	// Domain is the standalone server domain, served with ACME certificates.
+	// Domain is the standalone server domain, served with ACME certificates
+	// in front mode; in behind mode it is a server hostname (panel, hooks)
+	// reached through the front proxy, with no certificate requested.
 	Domain string `yaml:"domain"`
 	// ACMEEmail is the optional ACME account contact.
 	ACMEEmail string `yaml:"acme_email"`
@@ -410,15 +434,35 @@ type Edge struct {
 func validPort(n int) bool { return n >= 1 && n <= 65535 }
 
 func (e Edge) validate() error {
-	for _, p := range []struct {
+	ports := []struct {
 		key string
 		n   int
-	}{{"http_port", e.HTTPPort}, {"https_port", e.HTTPSPort}, {"webhooks_port", e.WebhooksPort}} {
+	}{{"http_port", e.HTTPPort}, {"https_port", e.HTTPSPort}, {"webhooks_port", e.WebhooksPort}}
+	switch e.Mode {
+	case EdgeModeFront:
+	case EdgeModeBehind:
+		if _, err := checkLoopbackAddr("edge.behind_listen", e.BehindListen); err != nil {
+			return err
+		}
+		host, _, _ := net.SplitHostPort(e.BehindListen)
+		if net.ParseIP(host) == nil {
+			return fmt.Errorf("edge.behind_listen %q must use an IP address (127.0.0.1 or ::1)", e.BehindListen)
+		}
+		// The public ports are ignored: the front proxy owns them.
+		ports = ports[2:]
+	default:
+		return fmt.Errorf("edge.mode %q must be %q or %q", e.Mode, EdgeModeFront, EdgeModeBehind)
+	}
+	for _, p := range ports {
 		if !validPort(p.n) {
 			return fmt.Errorf("edge.%s %d must be between 1 and 65535", p.key, p.n)
 		}
 	}
-	if e.HTTPPort == e.HTTPSPort || e.HTTPPort == e.WebhooksPort || e.HTTPSPort == e.WebhooksPort {
+	if e.Mode == EdgeModeBehind {
+		if _, p, _ := net.SplitHostPort(e.BehindListen); p == strconv.Itoa(e.WebhooksPort) {
+			return errors.New("edge.behind_listen and edge.webhooks_port must use different ports")
+		}
+	} else if e.HTTPPort == e.HTTPSPort || e.HTTPPort == e.WebhooksPort || e.HTTPSPort == e.WebhooksPort {
 		return errors.New("edge.http_port, edge.https_port and edge.webhooks_port must be distinct")
 	}
 	if e.Domain != "" {
@@ -456,7 +500,7 @@ func Default() Config {
 		Socket:   Socket{Path: "/run/ki-agent/ki.sock", Mode: 0o660},
 		Docker:   Docker{Host: "unix:///var/run/docker.sock", CLI: "docker"},
 		Webhooks: Webhooks{MaxBodyBytes: 5 << 20},
-		Edge:     Edge{Enabled: true, HTTPPort: 80, HTTPSPort: 443, WebhooksPort: 8090},
+		Edge:     Edge{Enabled: true, Mode: EdgeModeFront, BehindListen: "127.0.0.1:8480", HTTPPort: 80, HTTPSPort: 443, WebhooksPort: 8090},
 		Deploys:  Deploys{HealthTimeout: 5 * time.Minute, Keep: 50, LogMaxBytes: 1 << 20, Pull: PullAlways},
 		API: API{
 			Listen:            "127.0.0.1:8091",
@@ -575,6 +619,8 @@ func applyEnv(cfg *Config, lookup func(string) (string, bool)) error {
 	}
 	str("KI_EDGE_IMAGE", &cfg.Edge.Image)
 	str("KI_EDGE_DOMAIN", &cfg.Edge.Domain)
+	str("KI_EDGE_MODE", &cfg.Edge.Mode)
+	str("KI_EDGE_BEHIND_LISTEN", &cfg.Edge.BehindListen)
 	str("KI_EDGE_ACME_EMAIL", &cfg.Edge.ACMEEmail)
 	for key, dst := range map[string]*int{
 		"KI_EDGE_HTTP_PORT":     &cfg.Edge.HTTPPort,

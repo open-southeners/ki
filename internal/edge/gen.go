@@ -80,12 +80,50 @@ type StaticOptions struct {
 	HTTPSPort int
 	// ACMEEmail is the optional ACME account contact.
 	ACMEEmail string
+	// Behind selects behind mode: a single plain-HTTP entry point on
+	// BehindListen (loopback host:port) for a front proxy that terminates
+	// TLS. HTTPPort, HTTPSPort and ACMEEmail are ignored.
+	Behind       bool
+	BehindListen string
+}
+
+// forwardedTrusted are the sources whose X-Forwarded-* headers the proxy
+// trusts in behind mode: the front proxy on the same host.
+var forwardedTrusted = []string{"127.0.0.1/32", "::1/128"}
+
+// staticBehind renders the behind-mode static configuration: one plain HTTP
+// entry point bound to the loopback listen address, no HTTPS entry point, no
+// redirect and no ACME resolver.
+func staticBehind(listen string) ([]byte, error) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return nil, fmt.Errorf("edge: invalid behind listen address %q", listen)
+	}
+	ip := net.ParseIP(host)
+	if n, err := strconv.Atoi(port); ip == nil || !ip.IsLoopback() || err != nil || n < 1 || n > 65535 {
+		return nil, fmt.Errorf("edge: behind listen address %q must be a loopback host:port", listen)
+	}
+	doc := map[string]any{
+		"global": map[string]any{"checkNewVersion": false, "sendAnonymousUsage": false},
+		"log":    map[string]any{"level": "INFO"},
+		"entryPoints": map[string]any{
+			entryWeb: map[string]any{
+				"address":          listen,
+				"forwardedHeaders": map[string]any{"trustedIPs": forwardedTrusted},
+			},
+		},
+		"providers": map[string]any{"file": map[string]any{"directory": ctrDynamic, "watch": true}},
+	}
+	return marshalYAML(doc)
 }
 
 // Static renders the proxy's static configuration (traefik.yaml): the two
 // entry points (plain HTTP redirects to HTTPS), the file provider watching the
 // dynamic directory and the ACME resolver using the HTTP challenge.
 func Static(o StaticOptions) ([]byte, error) {
+	if o.Behind {
+		return staticBehind(o.BehindListen)
+	}
 	if o.HTTPPort < 1 || o.HTTPPort > 65535 || o.HTTPSPort < 1 || o.HTTPSPort > 65535 {
 		return nil, fmt.Errorf("edge: invalid ports %d/%d", o.HTTPPort, o.HTTPSPort)
 	}
@@ -136,6 +174,16 @@ type InstalledCert struct {
 	Hostname string
 }
 
+// ImportedCert is a bring-your-own certificate stored under certs/imported.
+type ImportedCert struct {
+	// ID names the files: imported/<ID>.crt and .key.
+	ID string
+	// Names are the certificate's DNS names (wildcards allowed).
+	Names []string
+	// Server makes the non-wildcard Names server hostnames.
+	Server bool
+}
+
 // Model is the input of [Dynamic].
 type Model struct {
 	// WebhooksPort is the loopback port of the agent's webhook listener.
@@ -151,10 +199,16 @@ type Model struct {
 	// tokens through the edge).
 	RPCPublic bool
 	// ACMEHostname is the standalone server domain ("" if none); it gets an
-	// ACME certificate.
+	// ACME certificate (in behind mode it is only a server hostname).
 	ACMEHostname string
+	// Behind renders behind mode: every router on the plain "web" entry
+	// point without TLS, server routes on server hostnames only (no IP
+	// literals), and no certificate store, since the front proxy owns TLS.
+	Behind bool
 	// Installed are the certificates installed for control-plane hostnames.
 	Installed []InstalledCert
+	// Imported are the bring-your-own certificates.
+	Imported []ImportedCert
 	// SelfSignedCert and SelfSignedKey are the file names (not paths) of the
 	// default certificate inside the self-signed mount.
 	SelfSignedCert, SelfSignedKey string
@@ -179,6 +233,27 @@ func Dynamic(m Model) ([]byte, error) {
 			acmeHost = ""
 		}
 	}
+	// routeTLS picks the TLS block for domains: the certificate store when
+	// an installed or imported certificate covers every one of them, the
+	// ACME resolver otherwise.
+	var storedNames []string
+	for _, c := range m.Installed {
+		storedNames = append(storedNames, c.Hostname)
+	}
+	for _, c := range m.Imported {
+		storedNames = append(storedNames, c.Names...)
+	}
+	routeTLS := func(domains []string) map[string]any {
+		if m.Behind {
+			return nil
+		}
+		for _, d := range domains {
+			if !certs.Covers(storedNames, d) {
+				return map[string]any{"certResolver": resolver}
+			}
+		}
+		return map[string]any{}
+	}
 	apiRoutes := m.PanelEnabled || m.RPCPublic
 	if apiRoutes {
 		if m.APIEdgePort < 1 || m.APIEdgePort > 65535 {
@@ -186,13 +261,21 @@ func Dynamic(m Model) ([]byte, error) {
 		}
 		services[panelSvc] = lbService([]string{"http://127.0.0.1:" + strconv.Itoa(m.APIEdgePort)})
 	}
+	entry := entrySecure
+	if m.Behind {
+		entry = entryWeb
+	}
 	// serverRoutes adds the agent routes for one group of hosts.
 	serverRoutes := func(group, hosts string, tls map[string]any) {
 		route := func(kind, rule, svc string, prio int) {
-			routers["ki-"+kind+"-"+group] = map[string]any{
-				"rule": hosts + " && " + rule, "priority": prio, "entryPoints": []string{entrySecure},
-				"service": svc, "tls": tls,
+			r := map[string]any{
+				"rule": hosts + " && " + rule, "priority": prio, "entryPoints": []string{entry},
+				"service": svc,
 			}
+			if !m.Behind {
+				r["tls"] = tls
+			}
+			routers["ki-"+kind+"-"+group] = r
 		}
 		route("hooks", "PathPrefix(`"+hooksPrefix+"`)", webhooksSvc, prioServer)
 		if apiRoutes {
@@ -208,13 +291,30 @@ func Dynamic(m Model) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		serverRoutes("acme", rule, map[string]any{"certResolver": resolver})
+		serverRoutes("acme", rule, routeTLS([]string{acmeHost}))
 	}
 	var installedHosts []string
 	for _, c := range m.Installed {
 		installedHosts = append(installedHosts, c.Hostname)
 	}
+	for _, c := range m.Imported {
+		if !c.Server {
+			continue
+		}
+		for _, n := range c.Names {
+			if !strings.HasPrefix(n, "*.") {
+				installedHosts = append(installedHosts, n)
+			}
+		}
+	}
 	sort.Strings(installedHosts)
+	uniq := installedHosts[:0]
+	for i, h := range installedHosts {
+		if i == 0 || h != installedHosts[i-1] {
+			uniq = append(uniq, h)
+		}
+	}
+	installedHosts = uniq
 	if len(installedHosts) > 0 {
 		rule, err := hostRule(installedHosts)
 		if err != nil {
@@ -224,7 +324,9 @@ func Dynamic(m Model) ([]byte, error) {
 	}
 	// Requests addressed to an IP literal (the self-signed fallback) reach
 	// the agent routes; any other unknown host does not.
-	serverRoutes("ip", ipLiteralRule, map[string]any{})
+	if !m.Behind {
+		serverRoutes("ip", ipLiteralRule, map[string]any{})
+	}
 
 	routes := append([]ProjectRoute(nil), m.Routes...)
 	sort.Slice(routes, func(i, j int) bool {
@@ -255,28 +357,54 @@ func Dynamic(m Model) ([]byte, error) {
 				return nil, err
 			}
 		}
-		routers[name] = map[string]any{
-			"rule": rule, "priority": prioProject, "entryPoints": []string{entrySecure},
-			"service": name, "tls": map[string]any{"certResolver": resolver},
+		router := map[string]any{
+			"rule": rule, "priority": prioProject, "entryPoints": []string{entry},
+			"service": name,
 		}
+		if !m.Behind {
+			router["tls"] = routeTLS(r.Domains)
+		}
+		routers[name] = router
 		services[name] = lbService(servers)
 	}
 
 	tls := map[string]any{}
-	if m.SelfSignedCert != "" {
+	if m.SelfSignedCert != "" && !m.Behind {
 		tls["stores"] = map[string]any{"default": map[string]any{"defaultCertificate": map[string]any{
 			"certFile": path.Join(ctrSelfSigned, m.SelfSignedCert),
 			"keyFile":  path.Join(ctrSelfSigned, m.SelfSignedKey),
 		}}}
 	}
-	if len(installedHosts) > 0 {
-		var list []any
-		for _, h := range installedHosts {
-			list = append(list, map[string]any{
-				"certFile": path.Join(ctrCerts, h+".crt"),
-				"keyFile":  path.Join(ctrCerts, h+".key"),
-			})
+	var list []any
+	var instHosts []string
+	for _, c := range m.Installed {
+		instHosts = append(instHosts, c.Hostname)
+	}
+	sort.Strings(instHosts)
+	for _, h := range instHosts {
+		if m.Behind {
+			break
 		}
+		list = append(list, map[string]any{
+			"certFile": path.Join(ctrCerts, h+".crt"),
+			"keyFile":  path.Join(ctrCerts, h+".key"),
+		})
+	}
+	imported := append([]ImportedCert(nil), m.Imported...)
+	sort.Slice(imported, func(i, j int) bool { return imported[i].ID < imported[j].ID })
+	for _, c := range imported {
+		if m.Behind {
+			break
+		}
+		if !certs.ValidID(c.ID) {
+			return nil, fmt.Errorf("edge: invalid imported certificate id %q", c.ID)
+		}
+		list = append(list, map[string]any{
+			"certFile": path.Join(ctrCerts, "imported", c.ID+".crt"),
+			"keyFile":  path.Join(ctrCerts, "imported", c.ID+".key"),
+		})
+	}
+	if len(list) > 0 {
 		tls["certificates"] = list
 	}
 	doc := map[string]any{"http": map[string]any{"routers": routers, "services": services}}

@@ -6,13 +6,12 @@ http:
             priority: 20000
             rule: Host(`panel.example.com`) && PathPrefix(`/hooks/`)
             service: ki-webhooks
-            tls:
-                certResolver: le
+            tls: {}
         ki-hooks-installed:
             entryPoints:
                 - websecure
             priority: 20000
-            rule: (Host(`a.cp.example.net`) || Host(`z.cp.example.net`)) && PathPrefix(`/hooks/`)
+            rule: (Host(`a.cp.example.net`) || Host(`ops.example.net`) || Host(`z.cp.example.net`)) && PathPrefix(`/hooks/`)
             service: ki-webhooks
             tls: {}
         ki-hooks-ip:
@@ -28,13 +27,12 @@ http:
             priority: 20000
             rule: Host(`panel.example.com`) && Path(`/rpc`)
             service: ki-panel
-            tls:
-                certResolver: le
+            tls: {}
         ki-rpc-installed:
             entryPoints:
                 - websecure
             priority: 20000
-            rule: (Host(`a.cp.example.net`) || Host(`z.cp.example.net`)) && Path(`/rpc`)
+            rule: (Host(`a.cp.example.net`) || Host(`ops.example.net`) || Host(`z.cp.example.net`)) && Path(`/rpc`)
             service: ki-panel
             tls: {}
         ki-rpc-ip:
@@ -50,8 +48,7 @@ http:
             priority: 10000
             rule: Host(`blog.example.com`) && PathPrefix(`/api`)
             service: p-blog-api-f39b180c
-            tls:
-                certResolver: le
+            tls: {}
         p-shop-web-43829c56:
             entryPoints:
                 - websecure
@@ -84,6 +81,10 @@ tls:
           keyFile: /etc/traefik/certs/a.cp.example.net.key
         - certFile: /etc/traefik/certs/z.cp.example.net.crt
           keyFile: /etc/traefik/certs/z.cp.example.net.key
+        - certFile: /etc/traefik/certs/imported/i-0123456789ab.crt
+          keyFile: /etc/traefik/certs/imported/i-0123456789ab.key
+        - certFile: /etc/traefik/certs/imported/i-ba9876543210.crt
+          keyFile: /etc/traefik/certs/imported/i-ba9876543210.key
     stores:
         default:
             defaultCertificate:

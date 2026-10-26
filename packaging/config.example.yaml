@@ -55,6 +55,10 @@ docker:
   # docker executable (with the compose v2 plugin) used to run deploys.
   # A bare name is looked up in PATH.
   cli: docker
+  # Docker client config directory (DOCKER_CONFIG) deploys run with. Registry
+  # logins (`docker login`) and credential helpers (config.json) live here.
+  # Empty uses <data_dir>/docker, created by the agent with mode 0700.
+  config_dir: ""
 
 # Inbound webhook listener that triggers deploys on git pushes/tags.
 webhooks:
@@ -76,6 +80,9 @@ deploys:
   keep: 50
   # Maximum stored log size per deploy in bytes (1 MiB).
   log_max_bytes: 1048576
+  # always: refresh image-only services (docker compose pull) before every
+  # deploy. missing: only pull images that are absent when starting.
+  pull: always
 
 # Managed reverse proxy (edge) that routes project domains to services.
 edge:
@@ -83,11 +90,21 @@ edge:
   enabled: true
   # Proxy container image. Empty selects the pinned default.
   image: ""
-  # Host ports the proxy publishes for HTTP and HTTPS.
+  # front: the edge owns the public ports and obtains certificates.
+  # behind: the edge listens on behind_listen in plain HTTP only, behind an
+  # existing web server (nginx, Caddy) that terminates TLS and forwards the
+  # migrated domains to it. See `ki-agent edge proxy-config`.
+  mode: front
+  # Behind mode: loopback IP:port the edge binds (not the public ports).
+  behind_listen: 127.0.0.1:8480
+  # Front mode: host ports the proxy publishes for HTTP and HTTPS (ignored in
+  # behind mode).
   http_port: 80
   https_port: 443
-  # Domain of this server, served with ACME certificates. Lowercase DNS name
-  # with at least one dot (no wildcard or IP). Empty disables it.
+  # Domain of this server. Front mode: served with an ACME certificate. Behind
+  # mode: a server hostname (panel, webhooks) reached through the front proxy,
+  # with no certificate requested. Lowercase DNS name with at least one dot
+  # (no wildcard or IP). Empty disables it.
   domain: ""
   # Optional contact email for the ACME account.
   acme_email: ""

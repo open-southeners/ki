@@ -35,6 +35,7 @@ const (
 const (
 	SourceACME      = "acme"
 	SourceInstalled = "installed"
+	SourceImported  = "imported"
 )
 
 const (
@@ -87,20 +88,40 @@ type SelfSignedStatus struct {
 
 // CertStatus describes a certificate the edge serves or will obtain.
 type CertStatus struct {
-	Hostname string `json:"hostname"`
-	// Source is "acme" or "installed".
-	Source   string     `json:"source"`
+	// ID identifies the certificate for edge.certificate.remove: the
+	// hostname for acme and installed certificates, "i-<hex>" for imported.
+	ID string `json:"id"`
+	// Hostname is the first of Names (kept for older consumers).
+	Hostname string   `json:"hostname"`
+	Names    []string `json:"names"`
+	// Source is "acme", "installed" or "imported".
+	Source string `json:"source"`
+	// Server reports whether the certificate serves server hostnames.
+	Server   bool       `json:"server"`
 	NotAfter *time.Time `json:"not_after,omitempty"`
+}
+
+func hostCert(host, source string, server bool, notAfter *time.Time) CertStatus {
+	return CertStatus{ID: host, Hostname: host, Names: []string{host}, Source: source, Server: server, NotAfter: notAfter}
+}
+
+func importedCert(c certs.Imported) CertStatus {
+	t := c.NotAfter
+	return CertStatus{ID: c.ID, Hostname: c.Names[0], Names: c.Names, Source: SourceImported, Server: c.Server, NotAfter: &t}
 }
 
 // Status is the wire form of the edge state (EdgeStatus).
 type Status struct {
-	Enabled         bool             `json:"enabled"`
-	State           string           `json:"state"`
-	LastError       string           `json:"last_error,omitempty"`
-	Image           string           `json:"image"`
-	HTTPPort        int              `json:"http_port"`
-	HTTPSPort       int              `json:"https_port"`
+	Enabled   bool   `json:"enabled"`
+	State     string `json:"state"`
+	LastError string `json:"last_error,omitempty"`
+	Image     string `json:"image"`
+	HTTPPort  int    `json:"http_port"`
+	HTTPSPort int    `json:"https_port"`
+	// Mode is "front" or "behind"; Listen is the address the proxy binds
+	// in behind mode (edge.behind_listen) and empty in front mode.
+	Mode            string           `json:"mode"`
+	Listen          string           `json:"listen,omitempty"`
 	ServerHostnames []string         `json:"server_hostnames"`
 	SelfSigned      SelfSignedStatus `json:"self_signed"`
 	Certificates    []CertStatus     `json:"certificates"`
@@ -222,6 +243,13 @@ func (m *Manager) Status() Status {
 		SelfSigned: SelfSignedStatus{Fingerprint: m.selfSigned.FingerprintSHA256, NotAfter: m.selfSigned.NotAfter},
 		Routes:     m.routes,
 	}
+	s.Mode = m.opt.Config.Mode
+	if s.Mode == "" {
+		s.Mode = config.EdgeModeFront
+	}
+	if s.Mode == config.EdgeModeBehind {
+		s.Listen = m.opt.Config.BehindListen
+	}
 	// Installed certificates are read live so install/remove show at once;
 	// the ACME entries come from the last reconcile.
 	s.Certificates = []CertStatus{}
@@ -230,7 +258,14 @@ func (m *Manager) Status() Status {
 		for _, c := range inst {
 			t := c.NotAfter
 			live[c.Hostname] = true
-			s.Certificates = append(s.Certificates, CertStatus{Hostname: c.Hostname, Source: SourceInstalled, NotAfter: &t})
+			s.Certificates = append(s.Certificates, hostCert(c.Hostname, SourceInstalled, true, &t))
+		}
+	}
+	if imp, err := certs.ListImported(m.dir); err == nil {
+		for _, c := range imp {
+			if len(c.Names) > 0 {
+				s.Certificates = append(s.Certificates, importedCert(c))
+			}
 		}
 	}
 	for _, c := range m.certList {
@@ -238,13 +273,20 @@ func (m *Manager) Status() Status {
 			s.Certificates = append(s.Certificates, c)
 		}
 	}
-	sort.Slice(s.Certificates, func(i, j int) bool { return s.Certificates[i].Hostname < s.Certificates[j].Hostname })
+	sort.Slice(s.Certificates, func(i, j int) bool {
+		a, b := s.Certificates[i], s.Certificates[j]
+		if a.Hostname != b.Hostname {
+			return a.Hostname < b.Hostname
+		}
+		return a.ID < b.ID
+	})
 	s.ServerHostnames = m.ServerHostnames()
 	return s
 }
 
 // ServerHostnames lists the hostnames the server itself answers on: the
-// standalone edge.domain and the hostnames with an installed certificate,
+// standalone edge.domain, the hostnames with an installed certificate and the
+// non-wildcard names of imported certificates marked server,
 // sorted. It is never nil.
 func (m *Manager) ServerHostnames() []string {
 	out := []string{}
@@ -254,6 +296,18 @@ func (m *Manager) ServerHostnames() []string {
 	if inst, err := certs.List(m.dir); err == nil {
 		for _, c := range inst {
 			out = append(out, c.Hostname)
+		}
+	}
+	if imp, err := certs.ListImported(m.dir); err == nil {
+		for _, c := range imp {
+			if !c.Server {
+				continue
+			}
+			for _, n := range c.Names {
+				if !strings.HasPrefix(n, "*.") {
+					out = append(out, n)
+				}
+			}
 		}
 	}
 	sort.Strings(out)
@@ -356,18 +410,31 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list certificates: %w", err)
 	}
+	imported, err := certs.ListImported(m.dir)
+	if err != nil {
+		return fmt.Errorf("list imported certificates: %w", err)
+	}
 	routes, err := m.projectRoutes(ctx)
 	if err != nil {
 		return err
 	}
 	model := Model{
 		WebhooksPort: cfg.WebhooksPort, ACMEHostname: cfg.Domain,
+		Behind:         cfg.Mode == config.EdgeModeBehind,
 		SelfSignedCert: filepath.Base(self.CertFile), SelfSignedKey: filepath.Base(self.KeyFile),
 		Routes:      routes,
 		APIEdgePort: m.opt.APIEdgePort, PanelEnabled: m.opt.PanelEnabled, RPCPublic: m.opt.RPCPublic,
 	}
 	for _, c := range installed {
 		model.Installed = append(model.Installed, InstalledCert{Hostname: c.Hostname})
+	}
+	var storedNames []string
+	for _, c := range installed {
+		storedNames = append(storedNames, c.Hostname)
+	}
+	for _, c := range imported {
+		model.Imported = append(model.Imported, ImportedCert{ID: c.ID, Names: c.Names, Server: c.Server})
+		storedNames = append(storedNames, c.Names...)
 	}
 	dyn, err := Dynamic(model)
 	if err != nil {
@@ -377,7 +444,10 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		return fmt.Errorf("write routes: %w", err)
 	}
 
-	static, err := Static(StaticOptions{HTTPPort: cfg.HTTPPort, HTTPSPort: cfg.HTTPSPort, ACMEEmail: cfg.ACMEEmail})
+	static, err := Static(StaticOptions{
+		HTTPPort: cfg.HTTPPort, HTTPSPort: cfg.HTTPSPort, ACMEEmail: cfg.ACMEEmail,
+		Behind: model.Behind, BehindListen: cfg.BehindListen,
+	})
 	if err != nil {
 		return err
 	}
@@ -425,13 +495,19 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	seen := map[string]bool{}
 	for _, c := range installed {
 		t := c.NotAfter
-		status = append(status, CertStatus{Hostname: c.Hostname, Source: SourceInstalled, NotAfter: &t})
+		status = append(status, hostCert(c.Hostname, SourceInstalled, true, &t))
 		seen[c.Hostname] = true
 	}
+	for _, c := range imported {
+		if len(c.Names) > 0 {
+			status = append(status, importedCert(c))
+		}
+	}
 	add := func(h string) {
-		if !seen[h] {
+		// Behind mode obtains no certificates: the front proxy owns TLS.
+		if !model.Behind && !seen[h] && !certs.Covers(storedNames, h) {
 			seen[h] = true
-			status = append(status, CertStatus{Hostname: h, Source: SourceACME})
+			status = append(status, hostCert(h, SourceACME, h == cfg.Domain, nil))
 		}
 	}
 	if cfg.Domain != "" {

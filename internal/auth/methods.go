@@ -57,6 +57,7 @@ var MethodRoles = map[string]Role{
 	"edge.csr":                 RoleAdmin,
 	"edge.certificate.install": RoleAdmin,
 	"edge.certificate.remove":  RoleAdmin,
+	"edge.certificate.import":  RoleAdmin,
 	"enrollment.start":         RoleAdmin,
 	"enrollment.wait":          RoleAdmin,
 	"enrollment.remove":        RoleAdmin,

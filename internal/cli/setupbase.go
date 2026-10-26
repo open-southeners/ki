@@ -26,7 +26,8 @@ func setupBase(cfg *config.Config, hostnames func() []string, fingerprint func()
 			return "http://" + cfg.API.Listen, ""
 		}
 		hostPort := func(host string) string {
-			if cfg.Edge.HTTPSPort != 443 {
+			// Behind mode: the front proxy serves the public https port.
+			if cfg.Edge.Mode != config.EdgeModeBehind && cfg.Edge.HTTPSPort != 443 {
 				return net.JoinHostPort(host, strconv.Itoa(cfg.Edge.HTTPSPort))
 			}
 			return host

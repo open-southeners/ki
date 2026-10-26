@@ -368,6 +368,9 @@ func TestExampleConfig(t *testing.T) {
 
 func TestEdgeDefaultsEnv(t *testing.T) {
 	d := Default().Edge
+	if d.Mode != "front" || d.BehindListen != "127.0.0.1:8480" {
+		t.Fatalf("mode defaults = %+v", d)
+	}
 	if !d.Enabled || d.Image != "" || d.HTTPPort != 80 || d.HTTPSPort != 443 || d.WebhooksPort != 8090 {
 		t.Fatalf("defaults = %+v", d)
 	}
@@ -379,11 +382,13 @@ func TestEdgeDefaultsEnv(t *testing.T) {
 		"KI_EDGE_DOMAIN":        "ki.example.com",
 		"KI_EDGE_ACME_EMAIL":    "ops@example.com",
 		"KI_EDGE_WEBHOOKS_PORT": "9000",
+		"KI_EDGE_MODE":          "behind",
+		"KI_EDGE_BEHIND_LISTEN": "127.0.0.1:9480",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Edge{Image: "caddy:2", HTTPPort: 8080, HTTPSPort: 8443, Domain: "ki.example.com", ACMEEmail: "ops@example.com", WebhooksPort: 9000}
+	want := Edge{Mode: "behind", BehindListen: "127.0.0.1:9480", Image: "caddy:2", HTTPPort: 8080, HTTPSPort: 8443, Domain: "ki.example.com", ACMEEmail: "ops@example.com", WebhooksPort: 9000}
 	if cfg.Edge != want {
 		t.Fatalf("edge = %+v, want %+v", cfg.Edge, want)
 	}
@@ -407,6 +412,18 @@ func TestEdgeValidation(t *testing.T) {
 		{"ok domain", func(c *Config) { c.Edge.Domain = "ki.example.com" }, ""},
 		{"ok email", func(c *Config) { c.Edge.ACMEEmail = "a@b.co" }, ""},
 		{"disabled ignores", func(c *Config) { c.Edge.Enabled = false; c.Edge.HTTPPort = 0 }, ""},
+		{"behind ok", func(c *Config) { c.Edge.Mode = "behind" }, ""},
+		{"behind ipv6", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = "[::1]:8480" }, ""},
+		{"behind ignores public ports", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.HTTPPort = 0; c.Edge.HTTPSPort = 0 }, ""},
+		{"front ignores behind_listen", func(c *Config) { c.Edge.BehindListen = "0.0.0.0:1" }, ""},
+		{"bad mode", func(c *Config) { c.Edge.Mode = "side" }, "edge.mode"},
+		{"empty mode", func(c *Config) { c.Edge.Mode = "" }, "edge.mode"},
+		{"behind public", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = "0.0.0.0:8480" }, "edge.behind_listen"},
+		{"behind no port", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = "127.0.0.1" }, "edge.behind_listen"},
+		{"behind localhost name", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = "localhost:8480" }, "IP address"},
+		{"behind = webhooks", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = "127.0.0.1:8090" }, "behind_listen"},
+		{"behind = api.listen", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = c.API.Listen }, "behind_listen"},
+		{"behind = api.edge_listen", func(c *Config) { c.Edge.Mode = "behind"; c.Edge.BehindListen = c.API.EdgeListen }, "behind_listen"},
 		{"zero port", func(c *Config) { c.Edge.HTTPPort = 0 }, "http_port"},
 		{"big port", func(c *Config) { c.Edge.HTTPSPort = 70000 }, "https_port"},
 		{"bad webhooks port", func(c *Config) { c.Edge.WebhooksPort = -1 }, "webhooks_port"},

@@ -60,9 +60,13 @@ func TestStaticRejects(t *testing.T) {
 
 func sampleModel() Model {
 	return Model{
-		WebhooksPort:   8090,
-		ACMEHostname:   "panel.example.com",
-		Installed:      []InstalledCert{{Hostname: "z.cp.example.net"}, {Hostname: "a.cp.example.net"}},
+		WebhooksPort: 8090,
+		ACMEHostname: "panel.example.com",
+		Installed:    []InstalledCert{{Hostname: "z.cp.example.net"}, {Hostname: "a.cp.example.net"}},
+		Imported: []ImportedCert{
+			{ID: "i-0123456789ab", Names: []string{"*.example.com"}},
+			{ID: "i-ba9876543210", Names: []string{"*.example.net", "ops.example.net"}, Server: true},
+		},
 		SelfSignedCert: "selfsigned.crt", SelfSignedKey: "selfsigned.key",
 		Routes: []ProjectRoute{
 			{Project: "shop", Service: "web", Domains: []string{"shop.example.com", "www.shop.example.com"}, Servers: []string{"http://172.20.0.3:8080", "http://172.20.0.2:8080"}},
