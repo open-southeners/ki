@@ -8,7 +8,11 @@ set -eu
 SRC=${SRC:-/src}
 BINARY=${BINARY:-/ki-agent}
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+AGENT_PID=""
+trap '[ -n "$AGENT_PID" ] && kill "$AGENT_PID" 2>/dev/null; rm -rf "$WORK"' EXIT
+# systemctl is stubbed, so no agent starts; do not wait for its socket.
+KI_INSTALL_WAIT=0
+export KI_INSTALL_WAIT
 
 fail() {
 	echo "FAIL: $*" >&2
@@ -71,6 +75,49 @@ edge_enabled() {
 }
 assert "default config does not enable the edge" test "$(edge_enabled)" = true
 
+panel_enabled() {
+	awk '/^panel:/ { e = 1; next } /^[^ #]/ { e = 0 } e && /^  enabled:/ { print $2; exit }' /etc/ki-agent/config.yaml
+}
+assert "default config does not enable the panel" test "$(panel_enabled)" = true
+
+echo "== --no-panel on a new config disables the panel"
+rm -f /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" --no-panel >"$WORK/out.log" 2>&1 || fail "install --no-panel failed"
+assert "panel not disabled in the new config" test "$(panel_enabled)" = false
+assert "edge was touched by --no-panel" test "$(edge_enabled)" = true
+assert "other config keys were damaged" grep -q '^  session_idle: 12h$' /etc/ki-agent/config.yaml
+if grep -q 'panel setup' "$WORK/out.log"; then fail "panel setup attempted with the panel disabled"; fi
+
+echo "== --no-panel leaves an existing config alone and says how"
+rm -f /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >/dev/null 2>&1
+sh "$SRC/install.sh" --no-panel >"$WORK/out.log" 2>&1 || fail "install --no-panel failed"
+assert "existing config was edited" test "$(panel_enabled)" = true
+assert "no instruction printed" grep -q 'to disable the panel' "$WORK/out.log"
+
+echo "== a fresh install with the panel on points at panel setup when the agent is not up"
+rm -f /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >"$WORK/out.log" 2>&1 || fail "install failed"
+assert "no socket hint" grep -q 'ki-agent panel setup' "$WORK/out.log"
+
+echo "== the installer prints the panel setup link from the running agent"
+mkdir -p "$WORK/data"
+KI_DATA_DIR="$WORK/data" KI_EDGE_ENABLED=false "$BINARY" run >"$WORK/agent.log" 2>&1 &
+AGENT_PID=$!
+i=0
+while [ ! -S /run/ki-agent/ki.sock ] && [ "$i" -lt 30 ]; do
+	sleep 1
+	i=$((i + 1))
+done
+assert "agent socket did not appear" test -S /run/ki-agent/ki.sock
+rm -f /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >"$WORK/out.log" 2>&1 || fail "install with a running agent failed"
+assert "setup link not printed" grep -q '/setup#' "$WORK/out.log"
+kill "$AGENT_PID"
+wait "$AGENT_PID" 2>/dev/null || true
+AGENT_PID=""
+rm -f /run/ki-agent/ki.sock
+
 echo "== --no-edge on a new config disables the edge"
 rm -f /etc/ki-agent/config.yaml
 sh "$SRC/install.sh" --no-edge >"$WORK/out.log" 2>&1 || fail "install --no-edge failed"
@@ -93,6 +140,30 @@ sh "$SRC/install.sh" >"$WORK/out.log" 2>&1 || fail "install failed"
 assert "no warning for port 80" grep -q 'already listens on port(s) 80 ' "$WORK/out.log"
 if grep -q 'port(s).*22' "$WORK/out.log"; then fail "unrelated port reported"; fi
 rm -f "$STUBS/ss" /usr/local/bin/ki-agent /etc/ki-agent/config.yaml
+sh "$SRC/install.sh" >/dev/null 2>&1 || fail "reinstall failed"
+
+echo "== an existing admin turns the setup link into a hint and does not fail the install"
+STUBREL="$WORK/stubrelease"
+STUBPKG="$WORK/stubpkg"
+mkdir -p "$STUBREL" "$STUBPKG"
+cp "$SRC/packaging/systemd/ki-agent.service" "$SRC/packaging/config.example.yaml" "$SRC/README.md" "$STUBPKG/"
+cat >"$STUBPKG/ki-agent" <<'STUB'
+#!/bin/sh
+case "$1" in
+version) echo "ki-agent stub" ;;
+panel) echo "an admin exists; use ki-agent users reset <name>" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$STUBPKG/ki-agent"
+tar -czf "$STUBREL/ki-agent_linux_$arch.tar.gz" -C "$STUBPKG" .
+(cd "$STUBREL" && sha256sum "ki-agent_linux_$arch.tar.gz" >checksums.txt)
+mkdir -p /run/ki-agent
+python3 -c 'import socket; s = socket.socket(socket.AF_UNIX); s.bind("/run/ki-agent/ki.sock")' 2>/dev/null ||
+	perl -e 'use Socket; socket(S, PF_UNIX, SOCK_STREAM, 0); bind(S, sockaddr_un("/run/ki-agent/ki.sock"))' ||
+	fail "cannot create a fake socket"
+KI_INSTALL_BASE_URL="file://$STUBREL" sh "$SRC/install.sh" >"$WORK/out.log" 2>&1 || fail "install failed when an admin exists"
+assert "no hint printed" grep -q 'users reset' "$WORK/out.log"
+rm -f /run/ki-agent/ki.sock /usr/local/bin/ki-agent /etc/ki-agent/config.yaml
 sh "$SRC/install.sh" >/dev/null 2>&1 || fail "reinstall failed"
 
 echo "== upgrade keeps edited config"

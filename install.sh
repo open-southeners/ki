@@ -41,6 +41,10 @@ Options:
   --no-edge          Disable the managed reverse proxy (edge) in a newly
                      written config (edge.enabled: false). By default the
                      edge binds ports 80 and 443.
+  --no-panel         Disable the web panel in a newly written config
+                     (panel.enabled: false). By default the installer prints a
+                     one-time link to create the panel admin after starting
+                     the service.
   --no-start         Install and enable the service but do not start it.
   --add-user USER    Add USER to the ki-agent group so it can use the CLI
                      (default: the user who ran sudo).
@@ -49,6 +53,8 @@ Options:
 Environment:
   KI_INSTALL_BASE_URL  Download directory URL holding the release files
                        (https://, http:// or file://); for testing.
+  KI_INSTALL_WAIT      Seconds to wait for the agent socket after starting the
+                       service (default 15); for testing.
 USAGE
 }
 
@@ -185,6 +191,44 @@ replace_file() {
 	mv -f "$_tmp" "$2"
 }
 
+# wait_for_socket waits for the agent socket (up to KI_INSTALL_WAIT seconds).
+wait_for_socket() {
+	_n=${KI_INSTALL_WAIT:-15}
+	_i=0
+	while [ ! -S "$SOCKET_PATH" ] && [ "$_i" -lt "$_n" ]; do
+		sleep 1
+		_i=$((_i + 1))
+	done
+	[ -S "$SOCKET_PATH" ]
+}
+
+# setup_panel prints the one-time link that creates the panel admin. It never
+# fails the install: with an admin already present it prints a hint instead.
+setup_panel() {
+	if ! wait_for_socket; then
+		warn "the agent socket did not appear; create the panel admin later with: ki-agent panel setup"
+		return 0
+	fi
+	if panel_out=$("$BIN_PATH" panel setup 2>&1); then
+		log "open this link to create the panel admin (password and authenticator app):"
+		printf '%s\n' "$panel_out"
+	elif printf '%s' "$panel_out" | grep -q 'admin exists'; then
+		log "the panel already has an admin; to issue a new setup link run: ki-agent users reset <username>"
+	else
+		warn "could not create the panel setup link ($panel_out); run later: ki-agent panel setup"
+	fi
+	return 0
+}
+
+# panel_disabled succeeds when the config turns the panel off.
+panel_disabled() {
+	[ "$(awk '
+		/^panel:/ { insec = 1; next }
+		/^[^ #]/ { insec = 0 }
+		insec && /^  enabled:/ { print $2; exit }
+	' "$CONFIG_PATH" 2>/dev/null)" = false ]
+}
+
 # attached runs a command with the terminal on stdin even when the script was piped in.
 attached() {
 	if [ ! -t 0 ] && ( : </dev/tty ) 2>/dev/null; then
@@ -201,6 +245,7 @@ main() {
 	enroll_url=""
 	no_start=0
 	no_edge=0
+	no_panel=0
 	add_user=${SUDO_USER:-}
 
 	while [ $# -gt 0 ]; do
@@ -229,6 +274,10 @@ main() {
 			;;
 		--no-edge)
 			no_edge=1
+			shift
+			;;
+		--no-panel)
+			no_panel=1
 			shift
 			;;
 		--no-start)
@@ -373,14 +422,32 @@ main() {
 			cat "$CONFIG_PATH.new.$$" >"$CONFIG_PATH"
 			rm -f "$CONFIG_PATH.new.$$"
 			config_note="$config_note (edge disabled)"
-		elif [ "$upgrade" -eq 0 ]; then
+		fi
+		if [ "$no_panel" -eq 1 ]; then
+			# Flip the first "enabled:" key inside the panel: section.
+			awk '
+				/^panel:/ { inpanel = 1; print; next }
+				/^[^ #]/ { inpanel = 0 }
+				inpanel && !done && /^  enabled:/ { print "  enabled: false"; done = 1; next }
+				{ print }
+			' "$CONFIG_PATH" >"$CONFIG_PATH.new.$$"
+			cat "$CONFIG_PATH.new.$$" >"$CONFIG_PATH"
+			rm -f "$CONFIG_PATH.new.$$"
+			config_note="$config_note (panel disabled)"
+		fi
+		if [ "$no_edge" -eq 0 ] && [ "$upgrade" -eq 0 ]; then
 			taken=$(listening_web_ports | tr '\n' ' ')
 			if [ -n "$taken" ]; then
 				warn "something already listens on port(s) ${taken}which the edge proxy needs (80 and 443); the edge will report an error until they are free. Stop that service, change edge.http_port/edge.https_port in $CONFIG_PATH, or reinstall with --no-edge"
 			fi
 		fi
-	elif [ "$no_edge" -eq 1 ]; then
-		warn "$CONFIG_PATH already exists and was not changed; to disable the edge set \"enabled: false\" under \"edge:\" there (or KI_EDGE_ENABLED=false) and restart the service"
+	else
+		if [ "$no_edge" -eq 1 ]; then
+			warn "$CONFIG_PATH already exists and was not changed; to disable the edge set \"enabled: false\" under \"edge:\" there (or KI_EDGE_ENABLED=false) and restart the service"
+		fi
+		if [ "$no_panel" -eq 1 ]; then
+			warn "$CONFIG_PATH already exists and was not changed; to disable the panel set \"enabled: false\" under \"panel:\" there (or KI_PANEL_ENABLED=false) and restart the service"
+		fi
 	fi
 
 	service_state="not managed (systemd not running)"
@@ -409,15 +476,15 @@ main() {
 		log "users must be in the $SVC_GROUP group to use the ki-agent CLI: usermod -aG $SVC_GROUP <user>"
 	fi
 
+	if has_systemd && [ "$no_start" -eq 0 ] && ! panel_disabled; then
+		setup_panel
+	fi
+
 	if [ "$do_enroll" -eq 1 ]; then
 		if ! has_systemd; then
 			warn "skipping enrollment: the service is not running; run later: ki-agent enroll"
 		else
-			i=0
-			while [ ! -S "$SOCKET_PATH" ] && [ "$i" -lt 15 ]; do
-				sleep 1
-				i=$((i + 1))
-			done
+			wait_for_socket || true
 			if [ -n "$enroll_url" ]; then
 				attached "$BIN_PATH" enroll "$enroll_url"
 			else
