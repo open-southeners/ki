@@ -1887,6 +1887,49 @@
       ]
     },
     {
+      "name": "tunnel.status",
+      "x-role": "viewer",
+      "summary": "Report the state of the managed Cloudflare Tunnel.",
+      "description": "Always available (capability tunnel): with the tunnel disabled the result has enabled false and state disabled. ready comes from the connector's own readiness endpoint, connections is the number of active connections to Cloudflare. warnings lists configuration problems such as an edge that is not in behind mode. The result never contains the token.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/TunnelStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" }
+      ]
+    },
+    {
+      "name": "tunnel.configure",
+      "x-role": "admin",
+      "summary": "Store the Cloudflare Tunnel token and (re)start the connector (local socket and control plane only).",
+      "description": "Transport-restricted: other transports are refused with Unauthorized. The token (the base64 string Cloudflare shows for a remotely managed tunnel) is stored in a 0600 file under the data directory and handed to the connector as a mounted token file; it is never echoed, logged or returned. The connector only runs when tunnel.enabled is true. Replacing the token restarts the connector. Returns the updated tunnel status.",
+      "x-transports": ["unix", "control-plane"],
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "token", "description": "Tunnel token: 1 to 4096 characters of base64 (A-Z a-z 0-9 + / = - _).", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+      ],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/TunnelStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" }
+      ]
+    },
+    {
+      "name": "tunnel.remove",
+      "x-role": "admin",
+      "summary": "Delete the stored tunnel token and remove the connector (local socket and control plane only).",
+      "description": "Transport-restricted like tunnel.configure. Deletes the token, stops and removes the connector container. Idempotent. Returns the updated tunnel status.",
+      "x-transports": ["unix", "control-plane"],
+      "paramStructure": "by-name",
+      "params": [],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/TunnelStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" }
+      ]
+    },
+    {
       "name": "edge.status",
       "x-role": "viewer",
       "summary": "Report the state of the edge proxy.",
@@ -3151,6 +3194,20 @@
               "ssm": { "$ref": "#/components/schemas/AwsAgent" }
             }
           }
+        }
+      },
+      "TunnelStatus": {
+        "type": "object",
+        "required": ["enabled", "state", "configured", "ready", "connections", "image", "warnings"],
+        "properties": {
+          "enabled": { "type": "boolean", "description": "tunnel.enabled." },
+          "state": { "type": "string", "enum": ["disabled", "unconfigured", "starting", "connected", "disconnected", "error"], "description": "unconfigured: enabled but no token stored. starting: the connector was just (re)started. disconnected: running without an active connection to Cloudflare." },
+          "configured": { "type": "boolean", "description": "Whether a token is stored." },
+          "ready": { "type": "boolean", "description": "The connector reports an active connection to Cloudflare." },
+          "connections": { "type": "integer", "minimum": 0, "description": "Active connections to Cloudflare." },
+          "image": { "type": "string" },
+          "last_error": { "type": "string" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
         }
       },
       "EdgeStatus": {

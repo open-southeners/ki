@@ -37,6 +37,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/secret"
 	"github.com/open-southeners/ki-agent/internal/server"
 	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki-agent/internal/tunnel"
 	"github.com/open-southeners/ki-agent/internal/version"
 	"github.com/open-southeners/ki-agent/internal/webhooks"
 )
@@ -150,6 +151,12 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	// The edge routes to the real webhook listener, so the port it targets
 	// follows the effective listen address.
 	webhookListen := effectiveWebhooksListen(cfg, logger)
+	tunnelMgr := tunnel.New(tunnel.Options{
+		Config: cfg.Tunnel, DataDir: cfg.DataDir, UID: os.Getuid(), GID: os.Getgid(),
+		EdgeEnabled: cfg.Edge.Enabled, EdgeMode: cfg.Edge.Mode,
+		Compose: composeRunner, Runtime: rt, Logger: logger,
+	})
+	defer tunnelMgr.Close() // leaves the connector container running, by design
 	edgeMgr := edge.New(edge.Options{
 		Config: cfg.Edge, DataDir: cfg.DataDir,
 		Compose: composeRunner, Runtime: rt, Exposures: db, Logger: logger,
@@ -205,6 +212,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		return db.DomainOwner(ctx, domain)
 	}
 	edgeHandlers.Register(router)
+	tunnel.NewHandlers(tunnelMgr, logger).Register(router)
 	acc := accounts.New(accounts.Options{
 		Store: db, Secret: box, Logger: logger,
 		SetupBase: setupBase(cfg, edgeMgr.ServerHostnames,
@@ -256,6 +264,9 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 
 	// Started once the listeners are up; reconcile problems never fail the agent.
+	if err := tunnelMgr.Start(ctx); err != nil {
+		return err
+	}
 	if err := edgeMgr.Start(ctx); err != nil {
 		return err
 	}

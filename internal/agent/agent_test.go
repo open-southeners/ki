@@ -110,7 +110,7 @@ func TestInfoControlPlane(t *testing.T) {
 }
 
 func TestCapabilitiesAdvertiseEdgeAuthAndStats(t *testing.T) {
-	for _, c := range []string{"edge", "auth", "stats", "aws"} {
+	for _, c := range []string{"edge", "auth", "stats", "aws", "tunnel"} {
 		if !slices.Contains(capabilities, c) {
 			t.Errorf("capabilities = %v, want %s", capabilities, c)
 		}

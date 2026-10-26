@@ -17,6 +17,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/monitor"
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki-agent/internal/tunnel"
 )
 
 // This test lives in an external package because the enrollment handlers
@@ -102,6 +103,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 	projects.NewHandlers(nil).Register(r)
 	deploys.NewHandlers(nil).Register(r)
 	edge.NewHandlers(nil, "", nil).Register(r)
+	tunnel.NewHandlers(nil, nil).Register(r)
 	enrollment.New(enrollment.Options{}).Register(r)
 	accounts.New(accounts.Options{}).Register(r)
 	monitor.NewManager(monitor.Options{}).Register(r)
@@ -126,7 +128,8 @@ func TestSpecMatchesRouter(t *testing.T) {
 	if !slices.Equal(local, want) {
 		t.Errorf("x-local-only methods = %v, want %v", local, want)
 	}
-	wantRestricted := []string{edge.MethodCSR, edge.MethodInstall, edge.MethodRemove, edge.MethodImport}
+	wantRestricted := []string{edge.MethodCSR, edge.MethodInstall, edge.MethodRemove, edge.MethodImport,
+		tunnel.MethodConfigure, tunnel.MethodRemove}
 	slices.Sort(wantRestricted)
 	if !slices.Equal(restricted, wantRestricted) {
 		t.Errorf("x-transports methods = %v, want %v", restricted, wantRestricted)
