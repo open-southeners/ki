@@ -411,3 +411,11 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **What:** the token is only set through the CLI or the control plane (the panel transport is
   deliberately refused by `tunnel.configure`), so the card is read-only.
 - **Fix:** none needed unless the transport policy changes.
+
+## `TestIntervalAdaptation` is timing-sensitive (M5)
+
+- **Where:** `internal/monitor/manager_test.go` (`TestIntervalAdaptation`).
+- **What:** failed once in a full `go test ./...` run (no `-race`) and passed on reruns; the test
+  depends on real timer scheduling of the adaptive sampling loop.
+- **Fix:** drive the schedule with an injected clock/ticker instead of wall-clock waits, or assert the
+  computed interval directly rather than observed sample timing.
