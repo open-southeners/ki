@@ -47,6 +47,9 @@ const (
 	ReasonProjectNotReady = "project_not_ready"
 	ReasonRefNotAllowed   = "ref_not_allowed"
 	ReasonRefNotFound     = "ref_not_found"
+	// ReasonNoRollbackTarget: no deploy to roll back to (none succeeded before
+	// the current one, or the given deploy is not a deployable target).
+	ReasonNoRollbackTarget = "no_rollback_target"
 )
 
 // Deploy sources.
@@ -58,13 +61,15 @@ const (
 
 // Deploy is the wire form of a deploy.
 type Deploy struct {
-	ID         int64        `json:"id"`
-	Project    string       `json:"project"`
-	Ref        string       `json:"ref"`
-	Commit     string       `json:"commit"`
-	Source     string       `json:"source"`
-	Status     string       `json:"status"`
-	Stage      string       `json:"stage"`
+	ID      int64  `json:"id"`
+	Project string `json:"project"`
+	Ref     string `json:"ref"`
+	Commit  string `json:"commit"`
+	Source  string `json:"source"`
+	Status  string `json:"status"`
+	Stage   string `json:"stage"`
+	// RollbackOf is the deploy this one re-deploys (omitted for ordinary deploys).
+	RollbackOf int64        `json:"rollback_of,omitempty"`
 	Error      *DeployError `json:"error,omitempty"`
 	CreatedAt  string       `json:"created_at"`
 	StartedAt  *string      `json:"started_at"`
@@ -82,7 +87,7 @@ type DeployError struct {
 func View(d *store.Deploy) Deploy {
 	v := Deploy{
 		ID: d.ID, Project: d.Project, Ref: d.Ref, Commit: d.Commit, Source: d.Source,
-		Status: d.Status, Stage: d.Stage,
+		Status: d.Status, Stage: d.Stage, RollbackOf: d.RollbackOf,
 		CreatedAt:  d.CreatedAt.UTC().Format(time.RFC3339),
 		StartedAt:  stamp(d.StartedAt),
 		FinishedAt: stamp(d.FinishedAt),

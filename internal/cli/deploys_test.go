@@ -108,6 +108,76 @@ func TestDeployDetach(t *testing.T) {
 	}
 }
 
+func rollbackStubs(rec *calls, result string, updates []string) func(*rpc.Router) {
+	base := deployStubs(rec, deployQueuedJSON, updates)
+	return func(r *rpc.Router) {
+		base(r)
+		r.Handle(stub(rec, "deploys.rollback", result))
+	}
+}
+
+func TestDeploysRollbackFollows(t *testing.T) {
+	rec := &calls{}
+	sock := startAgent(t, rollbackStubs(rec, deployQueuedJSON, []string{
+		`{"type":"log","stream":"agent","text":"fetch"}`,
+		statusUpdate(deploySucceededJSON),
+	}))
+	out, _, err := runCLI(t, sock, "", "deploys", "rollback", "app", "--to", "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Deploy 42 queued for project app (ref refs/heads/main)\n==> fetch\n"
+	if out != want {
+		t.Errorf("stdout = %q, want %q", out, want)
+	}
+	if p := rec.last(t, "deploys.rollback"); p["project"] != "app" || p["deploy"] != float64(7) {
+		t.Errorf("rollback params = %v", p)
+	}
+	if p := rec.last(t, "deploys.subscribe"); p["id"] != float64(42) {
+		t.Errorf("subscribe params = %v", p)
+	}
+}
+
+func TestDeploysRollbackDetachAndDefaultTarget(t *testing.T) {
+	rec := &calls{}
+	sock := startAgent(t, rollbackStubs(rec, deployQueuedJSON, nil))
+	out, _, err := runCLI(t, sock, "", "deploys", "rollback", "app", "--detach")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "Deploy 42 queued for project app (ref refs/heads/main)\n" {
+		t.Errorf("stdout = %q", out)
+	}
+	if p := rec.last(t, "deploys.rollback"); len(p) != 1 {
+		t.Errorf("params = %v, want only the project", p)
+	}
+	if rec.count("deploys.subscribe") != 0 {
+		t.Error("--detach must not subscribe")
+	}
+	out, _, err = runCLI(t, sock, "", "deploys", "rollback", "app", "--detach", "--json")
+	if err != nil || !strings.Contains(out, `"id": 42`) {
+		t.Errorf("json = %q, %v", out, err)
+	}
+}
+
+func TestDeploysRollbackFailsWhenDeployFails(t *testing.T) {
+	rec := &calls{}
+	sock := startAgent(t, rollbackStubs(rec, deployQueuedJSON, []string{statusUpdate(deployPolicyJSON)}))
+	if _, _, err := runCLI(t, sock, "", "deploys", "rollback", "app"); err == nil {
+		t.Fatal("expected error for a failed deploy")
+	}
+}
+
+func TestDeploysRollbackArgs(t *testing.T) {
+	sock := startAgent(t, nil)
+	if _, _, err := runCLI(t, sock, "", "deploys", "rollback"); err == nil {
+		t.Fatal("expected error without slug")
+	}
+	if _, _, err := runCLI(t, sock, "", "deploys", "rollback", "app", "--to", "0"); err == nil {
+		t.Fatal("expected error for --to 0")
+	}
+}
+
 func TestDeployRequiresProject(t *testing.T) {
 	sock := startAgent(t, nil)
 	if _, _, err := runCLI(t, sock, "", "deploy"); err == nil {

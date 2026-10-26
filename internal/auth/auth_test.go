@@ -126,7 +126,9 @@ func TestRequireRoles(t *testing.T) {
 func TestMethodRoles(t *testing.T) {
 	want := map[string]Role{
 		"rpc.discover": RoleViewer, "auth.whoami": RoleViewer, "edge.status": RoleViewer,
-		"containers.restart": RoleOperator, "deploys.trigger": RoleOperator,
+		"containers.restart": RoleOperator, "deploys.trigger": RoleOperator, "deploys.rollback": RoleOperator,
+		"projects.services": RoleViewer, "projects.services.start": RoleOperator,
+		"projects.services.stop": RoleOperator, "projects.services.restart": RoleOperator,
 		"containers.remove": RoleAdmin, "users.create": RoleAdmin, "panel.setup": RoleAdmin,
 		"tokens.revoke": RoleAdmin, "audit.list": RoleAdmin, "enrollment.start": RoleAdmin,
 	}

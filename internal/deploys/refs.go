@@ -13,7 +13,8 @@ import (
 
 // TriggerError is a synchronous trigger failure (wire code -32012).
 type TriggerError struct {
-	// Reason is project_not_ready, ref_not_allowed or ref_not_found.
+	// Reason is project_not_ready, ref_not_allowed, ref_not_found or
+	// no_rollback_target.
 	Reason, Detail string
 }
 

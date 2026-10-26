@@ -222,11 +222,90 @@ func (m *Manager) Trigger(ctx context.Context, req TriggerRequest) (*Deploy, err
 	if err != nil {
 		return nil, err
 	}
-	source := req.Source
+	return m.enqueue(ctx, p, t, req.Source, 0)
+}
+
+// RollbackRequest asks to re-deploy an earlier successful deploy.
+type RollbackRequest struct {
+	Project string
+	// Deploy is the id to roll back to; 0 selects the previous good deploy
+	// (the newest succeeded one older than the newest succeeded one).
+	Deploy int64
+	// Source is webhook, api or cli (default api).
+	Source string
+}
+
+func noTarget(format string, args ...any) error {
+	return &TriggerError{Reason: ReasonNoRollbackTarget, Detail: fmt.Sprintf(format, args...)}
+}
+
+// Rollback queues a normal deploy of the target deploy's ref pinned to the
+// commit it deployed, so it runs the whole pipeline. A target that is not
+// usable (unknown id, another project's deploy, not succeeded, no recorded
+// commit, or no previous good deploy) is a *TriggerError with reason
+// no_rollback_target; a commit that is no longer reachable from the ref fails
+// at the fetch stage like any other deploy. An unknown project is
+// store.ErrNotFound.
+func (m *Manager) Rollback(ctx context.Context, req RollbackRequest) (*Deploy, error) {
+	p, err := m.opts.Store.GetProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status == projects.StatusPending {
+		return nil, &TriggerError{Reason: ReasonProjectNotReady, Detail: "the agent cannot read the repository yet"}
+	}
+	var target *store.Deploy
+	if req.Deploy > 0 {
+		d, err := m.opts.Store.GetDeploy(ctx, req.Deploy)
+		switch {
+		case errors.Is(err, store.ErrNotFound) || err == nil && d.Project != p.Slug:
+			return nil, noTarget("deploy %d is not a deploy of project %s", req.Deploy, p.Slug)
+		case err != nil:
+			return nil, err
+		case d.Status != StatusSucceeded:
+			return nil, noTarget("deploy %d did not succeed (%s)", d.ID, d.Status)
+		}
+		target = d
+	} else {
+		ds, err := m.opts.Store.ListDeploys(ctx, p.Slug, 0, 0)
+		if err != nil {
+			return nil, err
+		}
+		seen := 0
+		for _, d := range ds {
+			if d.Status != StatusSucceeded {
+				continue
+			}
+			if seen++; seen == 2 {
+				target = d
+				break
+			}
+		}
+		if target == nil {
+			return nil, noTarget("no earlier successful deploy to roll back to")
+		}
+	}
+	if target.Commit == "" {
+		return nil, noTarget("deploy %d has no recorded commit", target.ID)
+	}
+	t, err := m.resolve(ctx, p, target.Ref, target.Commit)
+	if err != nil {
+		return nil, err
+	}
+	if t.pin != target.Commit {
+		// A tag that moved: the commit is not what the ref points at now.
+		return nil, noTarget("ref %s no longer points at commit %s", target.Ref, target.Commit)
+	}
+	return m.enqueue(ctx, p, t, req.Source, target.ID)
+}
+
+// enqueue records a queued deploy of t for p and hands it to the project's
+// worker, superseding a deploy that is still queued.
+func (m *Manager) enqueue(ctx context.Context, p *store.Project, t target, source string, rollbackOf int64) (*Deploy, error) {
 	if source == "" {
 		source = SourceAPI
 	}
-	d := &store.Deploy{Project: p.Slug, Ref: t.ref, Source: source, Status: StatusQueued}
+	d := &store.Deploy{Project: p.Slug, Ref: t.ref, Source: source, Status: StatusQueued, RollbackOf: rollbackOf}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -240,7 +319,8 @@ func (m *Manager) Trigger(ctx context.Context, req TriggerRequest) (*Deploy, err
 	j := &job{d: d, t: t, ctx: jctx, cancel: cancel,
 		bc: newBroadcaster(m.opts.Store, m.log, d.ID, m.opts.LogMaxBytes)}
 	m.casts[d.ID] = j.bc
-	m.log.Info("deploy queued", "deploy", d.ID, "project", p.Slug, "ref", t.ref, "source", source)
+	m.log.Info("deploy queued", "deploy", d.ID, "project", p.Slug, "ref", t.ref, "source", source,
+		"rollback_of", rollbackOf)
 
 	st := m.states[p.Slug]
 	if st == nil {

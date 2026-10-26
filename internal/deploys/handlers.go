@@ -14,6 +14,7 @@ import (
 // Method and notification names.
 const (
 	MethodTrigger     = "deploys.trigger"
+	MethodRollback    = "deploys.rollback"
 	MethodGet         = "deploys.get"
 	MethodList        = "deploys.list"
 	MethodSubscribe   = "deploys.subscribe"
@@ -33,6 +34,7 @@ func NewHandlers(m *Manager) *Handlers { return &Handlers{m: m} }
 // Register installs the deploy methods on r.
 func (h *Handlers) Register(r *rpc.Router) {
 	r.Handle(MethodTrigger, h.trigger)
+	r.Handle(MethodRollback, h.rollback)
 	r.Handle(MethodGet, h.get)
 	r.Handle(MethodList, h.list)
 	r.Handle(MethodSubscribe, h.subscribe)
@@ -98,6 +100,31 @@ func (h *Handlers) trigger(ctx context.Context, p *rpc.Peer, params json.RawMess
 		source = SourceCLI
 	}
 	d, err := h.m.Trigger(ctx, TriggerRequest{Project: in.Project, Ref: in.Ref, Source: source})
+	if err != nil {
+		return nil, projectNotFound(err)
+	}
+	return d, nil
+}
+
+func (h *Handlers) rollback(ctx context.Context, p *rpc.Peer, params json.RawMessage) (any, error) {
+	var in struct {
+		Project string `json:"project"`
+		Deploy  int64  `json:"deploy"`
+	}
+	if err := rpc.DecodeParams(params, &in); err != nil {
+		return nil, err
+	}
+	if in.Project == "" {
+		return nil, rpc.NewError(rpc.CodeInvalidParams, "invalid params: project is required")
+	}
+	if in.Deploy < 0 {
+		return nil, rpc.NewError(rpc.CodeInvalidParams, "invalid params: deploy must not be negative")
+	}
+	source := SourceAPI
+	if rpc.TransportOf(p) == rpc.TransportUnix {
+		source = SourceCLI
+	}
+	d, err := h.m.Rollback(ctx, RollbackRequest{Project: in.Project, Deploy: in.Deploy, Source: source})
 	if err != nil {
 		return nil, projectNotFound(err)
 	}

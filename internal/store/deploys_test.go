@@ -409,3 +409,32 @@ func TestProjectDeleteCascades(t *testing.T) {
 		}
 	}
 }
+
+func TestDeployRollbackOf(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	if err := s.CreateProject(ctx, sample("app", "w1")); err != nil {
+		t.Fatal(err)
+	}
+	a := &Deploy{Project: "app", Status: "succeeded"}
+	if err := s.CreateDeploy(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	b := &Deploy{Project: "app", Status: "queued", RollbackOf: a.ID}
+	if err := s.CreateDeploy(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ id, want int64 }{{a.ID, 0}, {b.ID, a.ID}} {
+		d, err := s.GetDeploy(ctx, c.id)
+		if err != nil || d.RollbackOf != c.want {
+			t.Fatalf("deploy %d = %+v, %v; want rollback_of %d", c.id, d, err, c.want)
+		}
+	}
+	b.Status = "running"
+	if err := s.UpdateDeploy(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := s.GetDeploy(ctx, b.ID); d.RollbackOf != a.ID {
+		t.Fatalf("rollback_of lost on update: %+v", d)
+	}
+}

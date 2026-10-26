@@ -150,6 +150,7 @@ var migrations = []string{
 		target         TEXT NOT NULL DEFAULT '',
 		result         TEXT NOT NULL DEFAULT ''
 	)`,
+	`ALTER TABLE deploys ADD COLUMN rollback_of INTEGER`,
 }
 
 // Project is a persisted project row.

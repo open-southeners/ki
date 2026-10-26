@@ -24,6 +24,7 @@ var MethodRoles = map[string]Role{
 	"projects.get":                 RoleViewer,
 	"projects.list":                RoleViewer,
 	"projects.env.list":            RoleViewer,
+	"projects.services":            RoleViewer,
 	"deploys.get":                  RoleViewer,
 	"deploys.list":                 RoleViewer,
 	"deploys.subscribe":            RoleViewer,
@@ -36,6 +37,11 @@ var MethodRoles = map[string]Role{
 	"containers.stop":    RoleOperator,
 	"containers.restart": RoleOperator,
 	"deploys.trigger":    RoleOperator,
+	"deploys.rollback":   RoleOperator,
+
+	"projects.services.start":   RoleOperator,
+	"projects.services.stop":    RoleOperator,
+	"projects.services.restart": RoleOperator,
 
 	// admin
 	"containers.remove":        RoleAdmin,

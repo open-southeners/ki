@@ -42,6 +42,7 @@ type deploy struct {
 	Source     string       `json:"source"`
 	Status     string       `json:"status"`
 	Stage      string       `json:"stage"`
+	RollbackOf int64        `json:"rollback_of"`
 	Error      *deployError `json:"error"`
 	CreatedAt  string       `json:"created_at"`
 	StartedAt  *string      `json:"started_at"`
@@ -143,7 +144,69 @@ func newDeploysCmd(f *flags) *cobra.Command {
 		Use:   "deploys",
 		Short: "Inspect a project's deploys",
 	}
-	cmd.AddCommand(newDeploysListCmd(f), newDeploysGetCmd(f), newDeploysLogsCmd(f))
+	cmd.AddCommand(newDeploysListCmd(f), newDeploysGetCmd(f), newDeploysLogsCmd(f), newDeploysRollbackCmd(f))
+	return cmd
+}
+
+func newDeploysRollbackCmd(f *flags) *cobra.Command {
+	var (
+		to             int64
+		detach, asJSON bool
+	)
+	cmd := &cobra.Command{
+		Use:   "rollback <slug> [--to <deploy-id>]",
+		Short: "Re-deploy an earlier successful deploy and follow the deploy log",
+		Long: `Roll a project back by deploying the commit of an earlier successful deploy.
+
+Without --to the previous good deploy is used: the newest successful deploy
+older than the newest successful one. --to takes the id of a successful deploy
+of the project. The rollback is a normal deploy of that commit and runs the
+whole pipeline, so it fails if the commit is no longer reachable from the
+project's trigger. The command exits non-zero when the deploy fails or is
+interrupted. With --detach it prints the queued deploy and returns at once.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			params := map[string]any{"project": args[0]}
+			if cmd.Flags().Changed("to") {
+				if to <= 0 {
+					return fmt.Errorf("invalid deploy id %d: want a positive number", to)
+				}
+				params["deploy"] = to
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			c, err := connect(cmd, f)
+			if err != nil {
+				return err
+			}
+			defer c.Close()
+
+			var raw json.RawMessage
+			if err := c.Call(ctx, "deploys.rollback", params, &raw); err != nil {
+				return explainError(err)
+			}
+			var d deploy
+			if err := json.Unmarshal(raw, &d); err != nil {
+				return fmt.Errorf("decode result: %w", err)
+			}
+			w := cmd.OutOrStdout()
+			if detach {
+				if asJSON {
+					return printJSON(w, raw)
+				}
+				fmt.Fprintf(w, "Deploy %d %s for project %s (ref %s)\n", d.ID, d.Status, d.Project, d.Ref)
+				return nil
+			}
+			if !asJSON {
+				fmt.Fprintf(w, "Deploy %d %s for project %s (ref %s)\n", d.ID, d.Status, d.Project, d.Ref)
+			}
+			return followDeploy(ctx, cmd, c, d.ID, true, asJSON)
+		},
+	}
+	cmd.Flags().Int64Var(&to, "to", 0, "`deploy-id` to roll back to (default: the previous good deploy)")
+	cmd.Flags().BoolVar(&detach, "detach", false, "do not wait for the deploy to finish")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the deploy (--detach) or each raw log update as JSON")
 	return cmd
 }
 
@@ -458,6 +521,9 @@ func printDeploy(w io.Writer, d *deploy) {
 	row("Source", d.Source)
 	row("Status", d.Status)
 	row("Stage", d.Stage)
+	if d.RollbackOf > 0 {
+		row("Rollback of", strconv.FormatInt(d.RollbackOf, 10))
+	}
 	if d.Error != nil {
 		e := d.Error.Reason
 		if d.Error.Detail != "" {
