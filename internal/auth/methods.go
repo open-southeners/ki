@@ -30,6 +30,7 @@ var MethodRoles = map[string]Role{
 	"deploys.subscribe":            RoleViewer,
 	"deploys.unsubscribe":          RoleViewer,
 	"edge.status":                  RoleViewer,
+	"aws.status":                   RoleViewer,
 	"auth.whoami":                  RoleViewer,
 
 	// operator
