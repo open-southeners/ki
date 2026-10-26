@@ -2,7 +2,7 @@
   "openrpc": "1.3.2",
   "info": {
     "title": "ki-agent JSON-RPC API",
-    "description": "Control API of the ki-agent, served over JSON-RPC 2.0 on a local Unix socket (newline-delimited JSON) and an optional bearer-token WebSocket endpoint. Every connection must start with agent.hello; only agent.hello and rpc.discover may be called before it. Container methods only ever see containers labelled ki.managed=true.",
+    "description": "Control API of the ki-agent, served over JSON-RPC 2.0 on a local Unix socket (newline-delimited JSON) and over WebSocket at /rpc on loopback listeners (direct, and the one the edge routes to). WebSocket clients authenticate with an API token (Authorization: Bearer) or a panel session cookie, and every method requires a role (x-role: viewer, operator or admin). Every connection must start with agent.hello; only agent.hello and rpc.discover may be called before it. Container methods only ever see containers labelled ki.managed=true.",
     "version": "1.0.0",
     "license": {
       "name": "Apache-2.0",
@@ -12,6 +12,7 @@
   "methods": [
     {
       "name": "rpc.discover",
+      "x-role": "viewer",
       "summary": "Return this OpenRPC document.",
       "description": "May be called before agent.hello.",
       "paramStructure": "by-name",
@@ -24,6 +25,7 @@
     },
     {
       "name": "agent.hello",
+      "x-role": "viewer",
       "summary": "Negotiate the protocol version and open the session.",
       "description": "Must be the first call on a connection. The protocol major version must equal the agent's; minor and patch differences are compatible. On a major mismatch the agent answers with an IncompatibleVersion error and then closes the connection. Requests may be pipelined directly behind agent.hello without waiting for its response: they are processed in order and see the completed handshake (requests sent before it succeeds fail with HandshakeRequired).",
       "paramStructure": "by-name",
@@ -56,6 +58,7 @@
     },
     {
       "name": "agent.info",
+      "x-role": "viewer",
       "summary": "Describe the running agent and its host.",
       "paramStructure": "by-name",
       "params": [],
@@ -69,6 +72,7 @@
     },
     {
       "name": "agent.ping",
+      "x-role": "viewer",
       "summary": "Check that the agent is responsive.",
       "paramStructure": "by-name",
       "params": [],
@@ -89,6 +93,7 @@
     },
     {
       "name": "agent.heartbeat.subscribe",
+      "x-role": "viewer",
       "summary": "Stream periodic agent.heartbeat.update notifications.",
       "description": "A snapshot-style stream: if the connection is slow, only the latest heartbeat is delivered. The subscription ends with the connection or on agent.heartbeat.unsubscribe.",
       "paramStructure": "by-name",
@@ -117,6 +122,7 @@
     },
     {
       "name": "agent.heartbeat.unsubscribe",
+      "x-role": "viewer",
       "summary": "Stop a heartbeat subscription.",
       "paramStructure": "by-name",
       "params": [
@@ -158,6 +164,7 @@
     },
     {
       "name": "runtime.info",
+      "x-role": "viewer",
       "summary": "Describe the container engine.",
       "paramStructure": "by-name",
       "params": [],
@@ -178,6 +185,7 @@
     },
     {
       "name": "containers.list",
+      "x-role": "viewer",
       "summary": "List containers managed by ki.",
       "description": "Only containers labelled ki.managed=true are ever listed; other containers on the host are invisible.",
       "paramStructure": "by-name",
@@ -210,6 +218,7 @@
     },
     {
       "name": "containers.inspect",
+      "x-role": "viewer",
       "summary": "Describe one managed container.",
       "paramStructure": "by-name",
       "params": [
@@ -246,6 +255,7 @@
     },
     {
       "name": "containers.start",
+      "x-role": "operator",
       "summary": "Start a container.",
       "paramStructure": "by-name",
       "params": [
@@ -283,6 +293,7 @@
     },
     {
       "name": "containers.stop",
+      "x-role": "operator",
       "summary": "Stop a container.",
       "paramStructure": "by-name",
       "params": [
@@ -328,6 +339,7 @@
     },
     {
       "name": "containers.restart",
+      "x-role": "operator",
       "summary": "Restart a container.",
       "paramStructure": "by-name",
       "params": [
@@ -373,6 +385,7 @@
     },
     {
       "name": "containers.remove",
+      "x-role": "admin",
       "summary": "Remove a container.",
       "paramStructure": "by-name",
       "params": [
@@ -417,6 +430,7 @@
     },
     {
       "name": "containers.logs.subscribe",
+      "x-role": "viewer",
       "summary": "Stream a container's log output as containers.logs.update notifications.",
       "description": "An ordered stream (see SubscriptionUpdate): lines are never replaced by newer ones, and a slow consumer sees a gap marker instead. The stream follows the container until containers.logs.unsubscribe, the end of the connection, or the container stopping; in the last case a final update with data {\"eof\": true} is sent and the subscription is closed. If the log stream fails mid-way the final update also carries an error message. The container is checked before the subscription id is returned, so an unknown container fails the call with NotFound. Subscriptions do not support resuming by sequence number: resubscribe with since.",
       "paramStructure": "by-name",
@@ -485,6 +499,7 @@
     },
     {
       "name": "containers.logs.unsubscribe",
+      "x-role": "viewer",
       "summary": "Stop a log subscription.",
       "paramStructure": "by-name",
       "params": [
@@ -552,6 +567,7 @@
     },
     {
       "name": "projects.create",
+      "x-role": "admin",
       "summary": "Register a Git repository as a project.",
       "description": "Auth is inferred: token given means https_token (the URL must be https); an ssh URL means ssh_key (the agent generates a deploy key); an https URL without a token means none. For none and https_token the repository is probed and cloned before anything is stored: any failure leaves nothing behind. For ssh_key the project is stored as pending_access without cloning and the public key is returned; add it as a read-only deploy key, then call projects.verify. The webhook secret is returned only here and on rotation.",
       "paramStructure": "by-name",
@@ -650,6 +666,7 @@
     },
     {
       "name": "projects.get",
+      "x-role": "viewer",
       "summary": "Return one project.",
       "paramStructure": "by-name",
       "params": [
@@ -683,6 +700,7 @@
     },
     {
       "name": "projects.list",
+      "x-role": "viewer",
       "summary": "List projects sorted by slug.",
       "paramStructure": "by-name",
       "params": [],
@@ -706,6 +724,7 @@
     },
     {
       "name": "projects.update",
+      "x-role": "admin",
       "summary": "Change a project's trigger, compose file or credentials.",
       "description": "Setting branch clears tag_pattern and vice versa. token and token_user apply only to https_token projects; rotate_deploy_key only to ssh_key projects and puts the project back to pending_access. A compose_file is validated against the checkout when one exists. Omitted parameters leave the setting unchanged.",
       "paramStructure": "by-name",
@@ -809,6 +828,7 @@
     },
     {
       "name": "projects.verify",
+      "x-role": "admin",
       "summary": "Check repository access and bring the checkout up to date.",
       "description": "Probes the repository with the stored credentials, resolves the default branch, clones the checkout if there is none (otherwise fetches and checks out the trigger branch head), and locates the compose file. On success the project becomes ready. On failure the status is unchanged, status_detail records the reason, and RepositoryError is returned.",
       "paramStructure": "by-name",
@@ -846,6 +866,7 @@
     },
     {
       "name": "projects.delete",
+      "x-role": "admin",
       "summary": "Remove a project, its containers and its checkout.",
       "description": "The project's containers and networks (and volumes when requested) are removed first; if the runtime is unavailable nothing is deleted. Then the checkout and the project record are removed.",
       "paramStructure": "by-name",
@@ -890,6 +911,7 @@
     },
     {
       "name": "projects.env.set",
+      "x-role": "admin",
       "summary": "Set project environment variables.",
       "description": "Merges vars into the project's stored variables; existing names are overwritten, others are kept. Values are encrypted at rest and never returned by any method. At deploy time they are written to the checkout's .env file and also used for ${VAR} interpolation of the compose file. Names must match ^[A-Za-z_][A-Za-z0-9_]*$; a project holds at most 256 variables, values are at most 64 KiB and must not contain NUL.",
       "paramStructure": "by-name",
@@ -935,6 +957,7 @@
     },
     {
       "name": "projects.env.unset",
+      "x-role": "admin",
       "summary": "Remove project environment variables.",
       "description": "Removes the named variables; names that are not set are ignored.",
       "paramStructure": "by-name",
@@ -980,6 +1003,7 @@
     },
     {
       "name": "projects.env.list",
+      "x-role": "viewer",
       "summary": "List the names of a project's environment variables.",
       "description": "Never returns values.",
       "paramStructure": "by-name",
@@ -1039,6 +1063,7 @@
     },
     {
       "name": "projects.expose",
+      "x-role": "admin",
       "summary": "Publish a service of a project on one or more domains through the edge proxy.",
       "description": "Stores a project-side exposure for the service, which overrides any ki.expose.* labels of that service entirely. A domain is routed to at most one (project, service) on the server: if another project already exposes one of the domains the call fails with AlreadyExists and data {domain, project}. The server's own hostnames (edge.domain and hostnames with an installed certificate) are reserved and rejected with InvalidParams. The service is not required to exist yet; projects.get reports a warning in exposure_warnings while it is unverified. Returns the updated project.",
       "paramStructure": "by-name",
@@ -1059,6 +1084,7 @@
     },
     {
       "name": "projects.unexpose",
+      "x-role": "admin",
       "summary": "Remove the project-side exposure of a service.",
       "description": "Deletes the project-side entry for the service; the ki.expose.* labels of the last successful deploy, if any, apply again. Removing a service without a project-side entry is a no-op. Returns the updated project.",
       "paramStructure": "by-name",
@@ -1075,6 +1101,7 @@
     },
     {
       "name": "deploys.trigger",
+      "x-role": "operator",
       "summary": "Queue a deploy of a project.",
       "description": "Checks that the project is ready and that ref is allowed for the project's trigger, records a queued deploy and returns it (status running when it started at once). One deploy runs per project at a time; at most one waits behind it, and a newer trigger supersedes the waiting one. A running deploy is never cancelled by a trigger. Pipeline failures are not errors of this call: they are recorded on the deploy (status failed, error). The source is api, or cli when called over the Unix socket.",
       "paramStructure": "by-name",
@@ -1126,6 +1153,7 @@
     },
     {
       "name": "deploys.get",
+      "x-role": "viewer",
       "summary": "Get a deploy.",
       "paramStructure": "by-name",
       "params": [
@@ -1159,6 +1187,7 @@
     },
     {
       "name": "deploys.list",
+      "x-role": "viewer",
       "summary": "List a project's deploys, newest first.",
       "description": "History is kept per project up to deploys.keep entries (default 50).",
       "paramStructure": "by-name",
@@ -1213,6 +1242,7 @@
     },
     {
       "name": "deploys.subscribe",
+      "x-role": "viewer",
       "summary": "Stream a deploy's log and final status as deploys.update notifications.",
       "description": "An ordered stream (see SubscriptionUpdate). The stored log is replayed first (lines after since_seq), then live lines follow; the stream ends with a status update carrying the final Deploy, after which the subscription is closed by the agent. Subscribing to a finished deploy replays its stored log and then sends the final status. The deploy is checked before the subscription id is returned, so an unknown deploy fails with NotFound.",
       "paramStructure": "by-name",
@@ -1263,6 +1293,7 @@
     },
     {
       "name": "deploys.unsubscribe",
+      "x-role": "viewer",
       "summary": "Stop a deploy subscription.",
       "paramStructure": "by-name",
       "params": [
@@ -1323,6 +1354,7 @@
     },
     {
       "name": "edge.status",
+      "x-role": "viewer",
       "summary": "Report the state of the edge proxy.",
       "description": "Always available: with the edge disabled the result has enabled false and state disabled. The self-signed fingerprint is the SHA-256 of the default certificate served for the bare IP and unknown hosts; operators compare it when they accept that certificate by hand.",
       "paramStructure": "by-name",
@@ -1334,6 +1366,7 @@
     },
     {
       "name": "edge.csr",
+      "x-role": "admin",
       "summary": "Create a certificate signing request for a server hostname (local socket and control plane only).",
       "description": "Transport-restricted: other transports are refused with Unauthorized. Generates (or reuses the pending) ECDSA P-256 key for the hostname, kept on the server and never returned, and returns a PEM CSR with that single DNS name. The control plane has it signed (for example by an origin CA) and passes the certificate to edge.certificate.install. A hostname exposed by a project is refused with AlreadyExists.",
       "x-transports": ["unix", "control-plane"],
@@ -1361,6 +1394,7 @@
     },
     {
       "name": "edge.certificate.install",
+      "x-role": "admin",
       "summary": "Install the certificate for a server hostname (local socket and control plane only).",
       "description": "Transport-restricted like edge.csr. The leaf must match the key created by edge.csr, cover the hostname, be valid now and not expire within 24 hours; violations are InvalidParams with a message. The chain is not verified against system roots: an origin CA certificate trusted only by a CDN is accepted. After the install the hostname becomes a server hostname served with this certificate and cannot be exposed by projects. Returns the updated edge status.",
       "x-transports": ["unix", "control-plane"],
@@ -1379,6 +1413,7 @@
     },
     {
       "name": "edge.certificate.remove",
+      "x-role": "admin",
       "summary": "Remove the installed certificate and key of a server hostname (local socket and control plane only).",
       "description": "Transport-restricted like edge.csr. Deletes the certificate and key; the hostname stops being a server hostname. Returns the updated edge status.",
       "x-transports": ["unix", "control-plane"],
@@ -1396,6 +1431,7 @@
     },
     {
       "name": "enrollment.start",
+      "x-role": "admin",
       "summary": "Start enrolling the agent with a control plane (local socket only).",
       "description": "Local-only: any transport other than the Unix socket is refused with Unauthorized. Discovers the enrollment endpoints under url, requests a device code and returns the code the operator must approve. Polling then runs in the background, bound to this connection: it is cancelled when the connection closes. Call enrollment.wait on the same connection to learn the outcome. On approval the credentials are stored in the data directory and the outbound control-plane connection starts at once, replacing any configured one. Only one enrollment may be in progress per agent.",
       "x-local-only": true,
@@ -1426,6 +1462,7 @@
     },
     {
       "name": "enrollment.wait",
+      "x-role": "admin",
       "summary": "Wait for the enrollment started on this connection to finish (local socket only).",
       "description": "Local-only. Blocks until the operator approves the code and the credentials are stored, then returns the control plane URL. Fails with EnrollmentError (reason denied, expired, unreachable, invalid_response or failed) if the enrollment does not succeed, and with InvalidParams if this connection has no enrollment in progress.",
       "x-local-only": true,
@@ -1450,6 +1487,7 @@
     },
     {
       "name": "enrollment.remove",
+      "x-role": "admin",
       "summary": "Forget the enrollment and stop its connection (local socket only).",
       "description": "Local-only. Deletes the stored credentials and stops the enrolled control-plane connection, cancelling any enrollment in progress. If the config file defines a control plane, the agent connects to that one instead. Fails with NotFound (\"not enrolled\") when there are no stored credentials.",
       "x-local-only": true,
@@ -1463,6 +1501,427 @@
         { "$ref": "#/components/errors/Unauthorized" },
         { "$ref": "#/components/errors/HandshakeRequired" },
         { "$ref": "#/components/errors/NotFound" }
+      ]
+    },
+    {
+      "name": "auth.whoami",
+      "x-role": "viewer",
+      "summary": "Return the identity the connection is authenticated as.",
+      "description": "Works for every principal: panel users and API tokens report their name and role, the local Unix socket reports kind local (admin) and the control-plane connection kind control-plane (admin).",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "principal",
+        "schema": {
+          "$ref": "#/components/schemas/Principal"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        }
+      ]
+    },
+    {
+      "name": "users.list",
+      "x-role": "admin",
+      "summary": "List panel users.",
+      "description": "Returns every user, newest last. Password hashes and TOTP secrets are never returned.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "users",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        }
+      ]
+    },
+    {
+      "name": "users.create",
+      "x-role": "admin",
+      "summary": "Create a user and issue a one-time setup link.",
+      "description": "The user starts in status pending and cannot sign in until the person opens the setup link, chooses a password and enrols an authenticator app. The link is valid for 30 minutes and works once; it is returned only here, so hand it over right away. Issuing a new link for the user invalidates older ones.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "username",
+          "description": "Lowercase letters, digits, '_', '.', '-'; 2 to 32 characters, starting with a letter.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{1,31}$"
+          }
+        },
+        {
+          "name": "role",
+          "description": "Role of the new user.",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      ],
+      "result": {
+        "name": "setup",
+        "schema": {
+          "$ref": "#/components/schemas/SetupLink"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/AlreadyExists"
+        }
+      ]
+    },
+    {
+      "name": "users.update",
+      "x-role": "admin",
+      "summary": "Change a user's role or disable or enable the account.",
+      "description": "Changing the role or disabling the account ends the user's sessions and closes its open connections. The last active admin cannot be disabled or demoted (InvalidParams). Enabling restores the status the user had (active or pending).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "username",
+          "description": "User to change.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{1,31}$"
+          }
+        },
+        {
+          "name": "role",
+          "description": "New role.",
+          "schema": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        {
+          "name": "disabled",
+          "description": "true disables the account, false enables it.",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "user",
+        "schema": {
+          "$ref": "#/components/schemas/User"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "users.reset",
+      "x-role": "admin",
+      "summary": "Reset a user's password and authenticator and issue a new setup link.",
+      "description": "Clears the password and TOTP secret, ends the user's sessions, closes its open connections and sets the status to pending. Use it for lost devices and forgotten passwords.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "username",
+          "description": "User to reset.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{1,31}$"
+          }
+        }
+      ],
+      "result": {
+        "name": "setup",
+        "schema": {
+          "$ref": "#/components/schemas/SetupLink"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "users.delete",
+      "x-role": "admin",
+      "summary": "Delete a user.",
+      "description": "Ends the user's sessions and closes its open connections. The last active admin cannot be deleted (InvalidParams).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "username",
+          "description": "User to delete.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{1,31}$"
+          }
+        }
+      ],
+      "result": {
+        "name": "deleted",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "panel.setup",
+      "x-role": "admin",
+      "summary": "Create the first panel admin and return the setup link.",
+      "description": "Only works while no active admin exists: it creates (or reuses the pending) admin and issues a setup link. When an active admin exists the call fails with InvalidParams; use users.reset instead. The link host is panel.public_url, else edge.domain, else an installed control-plane hostname, else the host's first non-loopback IPv4 address; with the edge disabled it is the direct listener, http://127.0.0.1:8091 by default (with an IP address, fingerprint_sha256 carries the fingerprint of the edge's self-signed certificate to compare in the browser).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "username",
+          "description": "Name of the admin. Defaults to \"admin\".",
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{1,31}$"
+          }
+        }
+      ],
+      "result": {
+        "name": "setup",
+        "schema": {
+          "$ref": "#/components/schemas/SetupLink"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/AlreadyExists"
+        }
+      ]
+    },
+    {
+      "name": "tokens.create",
+      "x-role": "admin",
+      "summary": "Create an API token.",
+      "description": "The secret is returned only in this response and cannot be retrieved later. Tokens authenticate WebSocket connections with an Authorization: Bearer header on the direct listener (and on the edge only when api.public_tokens is true).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "name",
+          "description": "Unique name, letters, digits, '_', '.', '-'.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          }
+        },
+        {
+          "name": "role",
+          "description": "Role the token acts with.",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        {
+          "name": "expires_in",
+          "description": "Lifetime as a Go duration (for example 720h); at most one year. Omitted: the token does not expire.",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "token",
+        "schema": {
+          "$ref": "#/components/schemas/CreatedToken"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/AlreadyExists"
+        }
+      ]
+    },
+    {
+      "name": "tokens.list",
+      "x-role": "admin",
+      "summary": "List API tokens.",
+      "description": "Never includes the secrets. Revoked tokens remain listed with revoked true.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": {
+        "name": "tokens",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/TokenInfo"
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        }
+      ]
+    },
+    {
+      "name": "tokens.revoke",
+      "x-role": "admin",
+      "summary": "Revoke an API token.",
+      "description": "The token stops working at once and connections opened with it are closed.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "name",
+          "description": "Token name.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "revoked",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "audit.list",
+      "x-role": "admin",
+      "summary": "List the audit log, newest first.",
+      "description": "Records every call to an operator or admin method (success or error) and the authentication events login, login failure, setup, logout and lockout. Denied calls are not recorded. Targets are slugs, names or ids, never secrets or values. The log keeps the newest 10000 entries. Page with before_id set to the smallest id received.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "limit",
+          "description": "Maximum entries, 1 to 500. Defaults to 100.",
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        {
+          "name": "before_id",
+          "description": "Return only entries with a smaller id.",
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "result": {
+        "name": "entries",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/AuditEntry"
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/Unauthorized"
+        },
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        }
       ]
     }
   ],
@@ -2256,6 +2715,203 @@
             }
           }
         ]
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "viewer",
+          "operator",
+          "admin"
+        ],
+        "description": "viewer < operator < admin; each role includes the ones below it. See the x-role of every method."
+      },
+      "Principal": {
+        "type": "object",
+        "required": [
+          "kind",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "token",
+              "local",
+              "control-plane"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "required": [
+          "username",
+          "role",
+          "status",
+          "totp_enrolled",
+          "created_at"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "disabled"
+            ]
+          },
+          "totp_enrolled": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_login_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SetupLink": {
+        "type": "object",
+        "required": [
+          "user",
+          "setup_url",
+          "expires_at"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "setup_url": {
+            "type": "string",
+            "description": "One-time link; the token is in the URL fragment so it never reaches server logs."
+          },
+          "fingerprint_sha256": {
+            "type": "string",
+            "description": "SHA-256 of the edge's self-signed certificate; present only when the link host is an IP address."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreatedToken": {
+        "type": "object",
+        "required": [
+          "token",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "The secret (prefix ki_); shown once."
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TokenInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "role",
+          "created_at",
+          "created_by"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AuditEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "time",
+          "principal_kind",
+          "principal_name",
+          "ip",
+          "action",
+          "target",
+          "result"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "principal_kind": {
+            "type": "string"
+          },
+          "principal_name": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "description": "RPC method or authentication event."
+          },
+          "target": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "description": "ok or the error code."
+          }
+        }
       }
     },
     "errors": {
@@ -2264,7 +2920,7 @@
       "MethodNotFound": { "code": -32601, "message": "Method not found" },
       "InvalidParams": { "code": -32602, "message": "Invalid params" },
       "InternalError": { "code": -32603, "message": "Internal error" },
-      "Unauthorized": { "code": -32001, "message": "Unauthorized", "data": "Returned for local-only methods (enrollment.*) called over any transport other than the Unix socket." },
+      "Unauthorized": { "code": -32001, "message": "Unauthorized", "data": "-32001 is returned for local-only methods (enrollment.*) over any transport other than the Unix socket, and as \"forbidden: requires <role>\" when the caller's role is below the method's x-role." },
       "HandshakeRequired": { "code": -32002, "message": "Handshake required: call agent.hello first" },
       "IncompatibleVersion": { "code": -32003, "message": "Incompatible protocol version" },
       "SubscriptionNotFound": { "code": -32004, "message": "Subscription not found" },

@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/open-southeners/ki-agent/api"
+	"github.com/open-southeners/ki-agent/internal/accounts"
 	"github.com/open-southeners/ki-agent/internal/agent"
+	"github.com/open-southeners/ki-agent/internal/auth"
 	"github.com/open-southeners/ki-agent/internal/containers"
 	"github.com/open-southeners/ki-agent/internal/deploys"
 	"github.com/open-southeners/ki-agent/internal/edge"
@@ -28,6 +30,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 			Name         string           `json:"name"`
 			Notification bool             `json:"x-notification"`
 			LocalOnly    bool             `json:"x-local-only"`
+			Role         string           `json:"x-role"`
 			Transports   []string         `json:"x-transports"`
 			Params       *json.RawMessage `json:"params"`
 			Result       *json.RawMessage `json:"result"`
@@ -69,6 +72,15 @@ func TestSpecMatchesRouter(t *testing.T) {
 			t.Errorf("%s: missing result", m.Name)
 		}
 		names = append(names, m.Name)
+		need, listed := auth.MethodRoles[m.Name]
+		switch {
+		case m.Role == "":
+			t.Errorf("%s: missing x-role", m.Name)
+		case !listed:
+			t.Errorf("%s: in the spec but not in auth.MethodRoles", m.Name)
+		case m.Role != need.String():
+			t.Errorf("%s: x-role = %q, auth.MethodRoles = %q", m.Name, m.Role, need)
+		}
 	}
 	if notifications != 3 {
 		t.Errorf("notifications documented = %d, want 3", notifications)
@@ -84,8 +96,23 @@ func TestSpecMatchesRouter(t *testing.T) {
 	deploys.NewHandlers(nil).Register(r)
 	edge.NewHandlers(nil, "", nil).Register(r)
 	enrollment.New(enrollment.Options{}).Register(r)
+	accounts.New(accounts.Options{}).Register(r)
 	if got := r.Methods(); !slices.Equal(got, names) {
 		t.Fatalf("router methods %v != spec methods %v", got, names)
+	}
+	for _, name := range r.Methods() {
+		if _, ok := auth.MethodRoles[name]; !ok {
+			t.Errorf("router method %s has no auth.MethodRoles entry", name)
+		}
+	}
+	// The role table, the router and the spec are the same set.
+	for name := range auth.MethodRoles {
+		if !slices.Contains(r.Methods(), name) {
+			t.Errorf("auth.MethodRoles lists %s, which no handler registers", name)
+		}
+		if !slices.Contains(names, name) {
+			t.Errorf("auth.MethodRoles lists %s, which the spec does not document", name)
+		}
 	}
 	want := []string{enrollment.MethodRemove, enrollment.MethodStart, enrollment.MethodWait}
 	if !slices.Equal(local, want) {

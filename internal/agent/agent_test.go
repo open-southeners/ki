@@ -109,8 +109,10 @@ func TestInfoControlPlane(t *testing.T) {
 	}
 }
 
-func TestCapabilitiesAdvertiseEdge(t *testing.T) {
-	if !slices.Contains(capabilities, "edge") {
-		t.Errorf("capabilities = %v, want edge", capabilities)
+func TestCapabilitiesAdvertiseEdgeAndAuth(t *testing.T) {
+	for _, c := range []string{"edge", "auth"} {
+		if !slices.Contains(capabilities, c) {
+			t.Errorf("capabilities = %v, want %s", capabilities, c)
+		}
 	}
 }
