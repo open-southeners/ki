@@ -5,6 +5,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# .dockerignore drops internal/panel/dist/*, and go:embed needs one file in it;
+# the installer test does not serve the panel.
+RUN touch internal/panel/dist/placeholder.txt
 RUN CGO_ENABLED=0 go build -trimpath -o /out/ki-agent ./cmd/ki-agent
 
 FROM debian:bookworm-slim

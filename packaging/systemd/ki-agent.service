@@ -20,6 +20,10 @@ StateDirectoryMode=0750
 # Sandboxing: the data directory is the only writable path.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/ki-agent
+# The docker client config (registry logins) defaults to /var/lib/ki-agent/docker;
+# a docker.config_dir elsewhere must be added to ReadWritePaths in a drop-in.
+# `systemctl show` (AWS agent detection) only needs the system bus socket, which
+# these settings leave reachable.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes

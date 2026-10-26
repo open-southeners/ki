@@ -4,6 +4,7 @@
 /ki-agent
 /control-plane
 /dist/
+/dist-local/
 *.test
 *.out
 
