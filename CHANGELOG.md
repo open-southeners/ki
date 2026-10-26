@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Users and roles**: three roles (`viewer`, `operator`, `admin`) now decide which methods a caller may use: viewers read, operators also start, stop and restart containers and trigger deploys, admins do everything else, including managing users and tokens. A call below its role fails with `-32001` (`forbidden: requires <role>`) and every method in the OpenRPC document carries its role as `x-role`. The Unix socket and the control-plane connection act as admin.
+- **Web panel sign-in**: `ki-agent panel setup` (the installer runs it for you) prints a one-time link that creates the first admin with a password and an authenticator app (TOTP); `ki-agent users create|list|update|reset|delete` and the `users.*` methods manage the rest. Sign-in is rate limited per address and per account, accounts lock after repeated failures, and sessions are stored hashed in a `__Host-` cookie. Disabling, deleting or resetting a user, or changing its role, also closes its open connections. The panel is served at `/` through the edge (HTTPS) and on `127.0.0.1:8091`; turn it off with `panel.enabled: false`, `KI_PANEL_ENABLED=false` or `ki-agent run --no-panel`.
+- **API tokens**: `ki-agent tokens create|list|revoke` (and `tokens.*`) mint named bearer tokens with a role and an optional expiry; the secret is shown once. Tokens work on the loopback listener, and through the edge only with `api.public_tokens: true`; revoking one closes its connections.
+- **Audit log**: `ki-agent audit` and `audit.list` show who did what: every operator or admin call (with its result) and sign-in, setup, logout and lockout events, with the client address. Denied calls are not recorded and the newest 10 000 entries are kept.
+- `auth.whoami` reports the caller's identity and role, and a new `auth` capability is advertised by `agent.hello`.
 - **Edge proxy with HTTPS**: the agent starts a managed reverse proxy container (ports 80 and 443, configurable with the `edge.*` keys or `KI_EDGE_*`) that publishes project services on their domains with automatic Let's Encrypt certificates. It never stops the agent when it cannot start (port in use, image pull failure): `edge.status` and `ki-agent edge status` report the state, ports, certificates and routes, and the agent keeps retrying. Disable it with `edge.enabled: false`.
 - **Expose services on domains**: label a Compose service with `ki.expose.port`, `ki.expose.domains` and optionally `ki.expose.path`, or use `projects.expose` / `projects.unexpose` (and `ki-agent projects expose|unexpose`), which override the labels. `projects.get` shows the effective `exposure` and any `exposure_warnings`. A domain can belong to only one project and service on a server: `projects.expose` answers `-32009` with the domain and project, and a deploy that collides fails with the new reason `domain_conflict`.
 - **Safety policy** rule `reserved_label`: services may not set `traefik.*` labels or any `ki.*` label other than `ki.expose.port`, `ki.expose.domains` and `ki.expose.path`.
@@ -86,18 +91,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   SIGINT or SIGTERM. `ki-agent version` prints the version and commit.
 - **Configuration**: settings are read from `/etc/ki-agent/config.yaml`
   (override with `--config`), then from `KI_*` environment variables; a
-  missing default file just means defaults. Keys: `data_dir`, `log_level`,
-  `socket.path`, `socket.mode`, `websocket.listen`, `websocket.path`,
-  `websocket.token_file`, `websocket.heartbeat_interval` and
-  `websocket.heartbeat_timeout`. `--log-level` overrides `log_level`. The
-  agent refuses to start with the WebSocket listener enabled unless
-  `websocket.token_file` points to a readable, non-empty file. See
+  missing default file just means defaults. Core keys: `data_dir`,
+  `log_level`, `socket.path`, `socket.mode`, and `api.*` for the HTTP
+  listeners. `--log-level` overrides `log_level`. See
   `packaging/config.example.yaml`.
 - **JSON-RPC 2.0 endpoint** on the local Unix socket (`socket.path`, newline
-  delimited) and, when `websocket.listen` is set, on an authenticated
-  WebSocket (`Authorization: Bearer` token, with ping/pong liveness that drops
-  dead connections). Either side of a connection can send requests and
-  notifications. Connection open and close are logged; the token never is.
+  delimited) and over an authenticated WebSocket at `/rpc` (API token or panel
+  session, with ping/pong liveness that drops dead connections). Either side
+  of a connection can send requests and notifications. Connection open and
+  close are logged; credentials never are.
 - **Session handshake**: `agent.hello` negotiates the protocol version
   (`1.0.0`; a different major version is rejected with `-32003` and the
   connection is closed) and every other method except `rpc.discover` returns
@@ -123,5 +125,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The agent's HTTP API now listens on two loopback addresses, `api.listen` (default `127.0.0.1:8091`, for local scripts) and `api.edge_listen` (default `127.0.0.1:8092`, the only address the edge routes to). The edge serves `/rpc`, `/auth/` and `/` on the server's own hostnames and bare IP, never on project domains. `install.sh --no-panel` writes `panel.enabled: false` into a new config.
 - `projects.delete` now reports the anonymous volumes it kept (`kept_volumes`) when `volumes` is not set, and `ki-agent projects delete` prints their names with the `docker volume rm` command to remove them. With `volumes: true` anonymous volumes are removed and counted in `volumes`.
 - The systemd service now runs as a dedicated `ki-agent` user and group instead of root; the CLI socket is accessible to members of the `ki-agent` group. Existing manual installs need that user created (the installer does it).
+
+### Removed
+
+- The `websocket` configuration section and its single shared bearer-token file are gone: the agent now refuses to start with a `websocket:` key (use `api.listen` and `ki-agent tokens create`), and `KI_WEBSOCKET_*` variables are ignored with a warning (use `KI_API_*`). The fixed WebSocket path is `/rpc`.

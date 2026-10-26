@@ -20,15 +20,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   "heartbeat timeout" from a network drop (e.g. send the close frame
   non-blocking, then `CloseNow`).
 
-## WebSocket rejects cross-origin browser connections (M1)
-
-- **Where:** `internal/transport/ws/ws.go` (`websocket.Accept` options).
-- **What:** the library's default Origin check rejects browser requests from
-  another origin. Fine by design — browsers talk to the control plane, not the
-  agent — but a future local web UI would be blocked.
-- **Fix:** add a configurable `websocket.origin_patterns` → `AcceptOptions.OriginPatterns`
-  if a browser client is ever supported.
-
 ## Subscription interval is advisory (M1)
 
 - **Where:** `internal/rpc/subscription.go` (`Subscriptions.Open`).
@@ -37,15 +28,6 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   client's requested rate.
 - **Fix:** acceptable for now; if more producers appear, add a rate limiter in
   `Subscription.Send` for Snapshot kinds.
-
-## WebSocket connection logs lack the remote address (M1)
-
-- **Where:** `internal/transport/ws/ws.go` (`NewHandler` `onConn` callback),
-  `internal/server/server.go` (connection logging).
-- **What:** `onConn` receives no `*http.Request`/remote address, so
-  "connection opened/closed" logs only the transport.
-- **Fix:** pass connection metadata (remote addr, user agent) to `onConn`, or
-  stash it in the ctx; honour `X-Forwarded-For` only behind a configured proxy.
 
 ## Long Unix socket paths fail with an opaque error (M1)
 
@@ -339,3 +321,24 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   (`TestManagerConcurrentApplyAndStatus`, about 1 in 10 runs). Present since M1b; not touched by M4/M4a.
 - **Fix:** snapshot `cancel`/`done` under `m.mu` (or mark `old` as replaced so `Run` never starts a
   connector that is no longer `m.cur`), and make `stop` wait on a value read under the lock.
+
+## Setup link picks the first non-loopback IPv4, which may be a bridge address (M4b)
+
+- **Where:** `internal/cli/setupbase.go` (`firstNonLoopbackIPv4`).
+- **What:** with no `panel.public_url`/`edge.domain`/installed hostname, the link host is the first
+  non-loopback, non-link-local IPv4 address in interface order. On a host that runs Docker this can be
+  a bridge such as `docker0` (172.17.0.1) instead of the address the operator reaches the server on.
+  Without the edge the link points at `http://<api.listen>` (loopback), not at an IP.
+- **Fix:** prefer the source address of the default route (for example by dialing a UDP socket to a
+  public address without sending) and skip `docker0`/`br-*`/`veth*` interfaces; `panel.public_url`
+  already overrides it.
+
+## `containers` logs test races the subscription close (M2)
+
+- **Where:** `internal/containers/containers_test.go` (`TestLogsStreamToEOF`, last assertion).
+- **What:** the test expects `containers.logs.unsubscribe` to answer `-32004` right after the `eof`
+  update, but the subscription is removed after that update is sent, so the unsubscribe can win the
+  race and succeed (`err = <nil>`). Seen once in the dind run (about 1 in 100+ runs); not touched by
+  M4b.
+- **Fix:** remove the subscription before sending the final `eof` update, or poll until the
+  unsubscribe reports `-32004`.
