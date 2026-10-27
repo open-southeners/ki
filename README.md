@@ -939,11 +939,11 @@ gh secret set KI_RELEASE_SIGNING_KEY < release-key.txt     # the seed, used by t
 `internal/update/keys.go` and ship a release. **Until a key is there, updates
 fail closed**: no release verifies and nothing installs.
 
-Pushing a `v*` tag runs the release workflow, which signs the release and uses
-the matching section of `CHANGELOG.md` (for example `## [1.2.3]`) as the release
-notes; the build fails if that section is missing or empty. A tag with a suffix
-such as `v1.2.3-rc.1` is published as a pre-release (offered only on the
-`prerelease` channel). `scripts/local-release.sh` signs `checksums.txt` only
+Tags are `vX.Y.Z`. Pushing one runs the release workflow, which first creates
+the GitHub release with the matching `CHANGELOG.md` section (for example
+`## [1.2.3]`) as its notes, then builds, signs and uploads the assets to it; it
+fails if that section is missing or empty. A tag such as `v1.2.3-rc.1` is
+published as a pre-release (offered only on the `prerelease` channel). `scripts/local-release.sh` signs `checksums.txt` only
 when `KI_RELEASE_SIGNING_KEY` is set in the environment; local builds without it
 cannot be installed by the updater.
 

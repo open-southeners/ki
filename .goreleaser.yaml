@@ -48,8 +48,11 @@ checksum:
   extra_files:
     - glob: ./install.sh
 
+# The release workflow creates the release (notes from CHANGELOG.md) before
+# GoReleaser runs; keep-existing uploads assets and leaves name and body alone.
 # install.sh is published as a plain release asset.
 release:
+  mode: keep-existing
   prerelease: auto
   github:
     owner: open-southeners
