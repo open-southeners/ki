@@ -91,33 +91,22 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 	ctx, slug := j.ctx, p.Slug
 	out := j.bc.line
 
-	// fetch
-	m.stage(j, StageFetch)
-	m.agent(j, "fetching %s", j.t.ref)
-	auth, err := m.opts.Projects.Auth(p)
-	if err != nil {
-		m.log.Error("deploy credentials", "deploy", j.d.ID, "err", err)
-		return fail(ReasonInternal, "cannot read repository credentials")
-	}
-	sha, err := m.opts.Git.Checkout(ctx, p.RepoURL, auth, dir, j.t.fetchRef, j.t.pin)
-	if err != nil {
-		var ge *git.Error
-		if errors.As(err, &ge) {
-			return fail(ReasonFetchFailed, "%s: %s", ge.Reason, ge.Detail)
+	var sha string
+	file := p.ComposeFile
+	if isCompose(p) {
+		file = composeFileName
+		if se := m.prepare(j, slug, dir); se != nil {
+			return se
 		}
-		m.log.Error("deploy checkout", "deploy", j.d.ID, "err", err)
-		return fail(ReasonInternal, "checkout failed")
-	}
-	j.d.Commit = sha
-	m.save(j)
-	m.agent(j, "checked out %s", sha)
-	if se := m.writeDotenv(ctx, slug, dir); se != nil {
-		return se
+	} else {
+		var se *stepError
+		if sha, se = m.fetch(j, p, dir); se != nil {
+			return se
+		}
 	}
 
 	// config
 	m.stage(j, StageConfig)
-	file := p.ComposeFile
 	m.agent(j, "normalizing %s", file)
 	if _, err := os.Stat(filepath.Join(dir, file)); errors.Is(err, fs.ErrNotExist) {
 		return fail(ReasonComposeNotFound, "%s does not exist at %s", file, shortSHA(sha))
@@ -153,7 +142,7 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 	if err != nil {
 		return fail(ReasonComposeInvalid, "%v", err)
 	}
-	if vs := policy.Check(dir, proj, policy.Options{}); len(vs) > 0 {
+	if vs := policy.Check(dir, proj, m.policyOptions(p)); len(vs) > 0 {
 		for _, v := range vs {
 			m.agent(j, "policy violation: %s %s: %s", v.Service, v.Rule, v.Detail)
 		}
@@ -187,11 +176,13 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 		}
 	}
 
-	// build
-	m.stage(j, StageBuild)
-	m.agent(j, "building")
-	if err := m.opts.Compose.Build(ctx, modelFile, slug, out); err != nil {
-		return fail(ReasonBuildFailed, "%s", composeDetail(err))
+	// build (a compose project has no buildable services)
+	if !isCompose(p) {
+		m.stage(j, StageBuild)
+		m.agent(j, "building")
+		if err := m.opts.Compose.Build(ctx, modelFile, slug, out); err != nil {
+			return fail(ReasonBuildFailed, "%s", composeDetail(err))
+		}
 	}
 
 	// up
@@ -212,9 +203,11 @@ func (m *Manager) run(j *job, p *store.Project, dir string) *stepError {
 	if se := m.waitHealthy(j, services); se != nil {
 		return se
 	}
-	if err := m.opts.Projects.SetCommitLocked(ctx, p, sha); err != nil {
-		m.log.Error("deploy record commit", "deploy", j.d.ID, "err", err)
-		return fail(ReasonInternal, "cannot record the deployed commit")
+	if !isCompose(p) {
+		if err := m.opts.Projects.SetCommitLocked(ctx, p, sha); err != nil {
+			m.log.Error("deploy record commit", "deploy", j.d.ID, "err", err)
+			return fail(ReasonInternal, "cannot record the deployed commit")
+		}
 	}
 	// The domains were free before up; another project may have taken one
 	// since. The deploy itself succeeded, so this is only a warning.
@@ -291,6 +284,89 @@ func (m *Manager) exposures(j *job, slug string, model []byte) ([]store.Exposure
 	return out, nil
 }
 
+// composeFileName is the compose file of a compose project, in its directory.
+const composeFileName = "compose.yaml"
+
+// policyOptions returns the policy options of p's deploys.
+func (m *Manager) policyOptions(p *store.Project) policy.Options {
+	return policy.Options{NoBuild: isCompose(p)}
+}
+
+// fetch checks out the target into dir and writes .env. It returns the
+// checked out commit.
+func (m *Manager) fetch(j *job, p *store.Project, dir string) (string, *stepError) {
+	ctx, slug := j.ctx, p.Slug
+	m.stage(j, StageFetch)
+	m.agent(j, "fetching %s", j.t.ref)
+	auth, err := m.opts.Projects.Auth(p)
+	if err != nil {
+		m.log.Error("deploy credentials", "deploy", j.d.ID, "err", err)
+		return "", fail(ReasonInternal, "cannot read repository credentials")
+	}
+	sha, err := m.opts.Git.Checkout(ctx, p.RepoURL, auth, dir, j.t.fetchRef, j.t.pin)
+	if err != nil {
+		var ge *git.Error
+		if errors.As(err, &ge) {
+			return "", fail(ReasonFetchFailed, "%s: %s", ge.Reason, ge.Detail)
+		}
+		m.log.Error("deploy checkout", "deploy", j.d.ID, "err", err)
+		return "", fail(ReasonInternal, "checkout failed")
+	}
+	j.d.Commit = sha
+	m.save(j)
+	m.agent(j, "checked out %s", sha)
+	if se := m.writeDotenv(ctx, slug, dir, true); se != nil {
+		return "", se
+	}
+	return sha, nil
+}
+
+// prepare writes the deploy's compose version to <dir>/compose.yaml and the
+// project variables to .env.
+func (m *Manager) prepare(j *job, slug, dir string) *stepError {
+	ctx := j.ctx
+	m.stage(j, StagePrepare)
+	m.agent(j, "preparing compose version %d", j.t.composeVersion)
+	cv, err := m.opts.Store.GetComposeVersion(ctx, slug, j.t.composeVersion)
+	if errors.Is(err, store.ErrNotFound) {
+		return fail(ReasonComposeNotFound, "compose version %d no longer exists", j.t.composeVersion)
+	}
+	if err != nil {
+		m.log.Error("deploy compose version", "deploy", j.d.ID, "err", err)
+		return fail(ReasonInternal, "cannot read the compose version")
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		m.log.Error("deploy mkdir", "deploy", j.d.ID, "err", err)
+		return fail(ReasonInternal, "cannot create the project directory")
+	}
+	if err := writeFileAtomic(filepath.Join(dir, composeFileName), []byte(cv.Content), 0o640); err != nil {
+		m.log.Error("deploy write compose file", "deploy", j.d.ID, "err", err)
+		return fail(ReasonInternal, "cannot write %s", composeFileName)
+	}
+	return m.writeDotenv(ctx, slug, dir, false)
+}
+
+// writeFileAtomic writes data to path through a temporary file and a rename.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 func shortSHA(s string) string {
 	if len(s) > 12 {
 		return s[:12]
@@ -299,8 +375,9 @@ func shortSHA(s string) string {
 }
 
 // writeDotenv writes the project's variables to <dir>/.env, or removes the
-// file when there are none.
-func (m *Manager) writeDotenv(ctx context.Context, slug, dir string) *stepError {
+// file when there are none. git is set for a git checkout, where a tracked
+// .env belongs to the repository.
+func (m *Manager) writeDotenv(ctx context.Context, slug, dir string, git bool) *stepError {
 	vars, err := m.opts.Projects.Env(ctx, slug)
 	if err != nil {
 		m.log.Error("deploy env", "slug", slug, "err", err)
@@ -317,13 +394,15 @@ func (m *Manager) writeDotenv(ctx context.Context, slug, dir string) *stepError 
 	}
 	if len(vars) == 0 {
 		// A tracked .env belongs to the repository (checkout restored it).
-		tracked, err := m.opts.Git.IsTracked(ctx, dir, ".env")
-		if err != nil {
-			m.log.Error("deploy ls-files", "slug", slug, "err", err)
-			return fail(ReasonInternal, "cannot inspect the checkout")
-		}
-		if tracked {
-			return nil
+		if git {
+			tracked, err := m.opts.Git.IsTracked(ctx, dir, ".env")
+			if err != nil {
+				m.log.Error("deploy ls-files", "slug", slug, "err", err)
+				return fail(ReasonInternal, "cannot inspect the checkout")
+			}
+			if tracked {
+				return nil
+			}
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			m.log.Error("deploy remove .env", "slug", slug, "err", err)

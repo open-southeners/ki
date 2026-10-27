@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/open-southeners/ki-agent/internal/git"
+	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/store"
 )
 
@@ -33,6 +35,9 @@ type target struct {
 	// fetchRef is fetched from the remote; pin, when set, is the commit that
 	// must be reachable from it and gets checked out.
 	fetchRef, pin string
+	// composeVersion is the compose version of a compose project's deploy
+	// (0 for git projects).
+	composeVersion int
 }
 
 const (
@@ -48,6 +53,9 @@ func notAllowed(format string, args ...any) error {
 // resolves it. Remote failures that are not a missing ref are returned as the
 // *git.Error they are.
 func (m *Manager) resolve(ctx context.Context, p *store.Project, ref, commit string) (target, error) {
+	if isCompose(p) {
+		return m.resolveCompose(ctx, p, strings.TrimSpace(ref), strings.TrimSpace(commit))
+	}
 	auth, err := m.opts.Projects.Auth(p)
 	if err != nil {
 		return target{}, err
@@ -154,6 +162,45 @@ func refErr(err error) error {
 		return &TriggerError{Reason: ReasonRefNotFound, Detail: ge.Detail}
 	}
 	return err
+}
+
+// isCompose reports whether p is a compose-only project.
+func isCompose(p *store.Project) bool { return p.Source == projects.SourceCompose }
+
+// composeTarget is the target of a deploy of the given compose version.
+func composeTarget(version int) target {
+	return target{ref: composeRef(version), composeVersion: version}
+}
+
+// composeRef formats the ref recorded on a compose deploy.
+func composeRef(version int) string { return fmt.Sprintf("compose@v%d", version) }
+
+// resolveCompose resolves the ref of a compose project: empty selects the
+// latest version, otherwise compose@vN, vN or N must name an existing one.
+func (m *Manager) resolveCompose(ctx context.Context, p *store.Project, ref, commit string) (target, error) {
+	if commit != "" {
+		return target{}, notAllowed("a compose project has no commits")
+	}
+	version := 0
+	if ref != "" {
+		s := strings.TrimPrefix(strings.TrimPrefix(ref, "compose@"), "v")
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || s != strconv.Itoa(n) {
+			return target{}, notAllowed("a compose project deploys compose@vN, vN or N")
+		}
+		version = n
+	}
+	cv, err := m.opts.Store.GetComposeVersion(ctx, p.Slug, version)
+	if errors.Is(err, store.ErrNotFound) {
+		if version == 0 {
+			return target{}, &TriggerError{Reason: ReasonRefNotFound, Detail: "the project has no compose version"}
+		}
+		return target{}, &TriggerError{Reason: ReasonRefNotFound, Detail: fmt.Sprintf("compose version %d does not exist", version)}
+	}
+	if err != nil {
+		return target{}, err
+	}
+	return composeTarget(cv.Version), nil
 }
 
 // isSHA reports whether s is a full 40 or 64 digit hex object name.

@@ -289,6 +289,17 @@ func (m *Manager) Rollback(ctx context.Context, req RollbackRequest) (*Deploy, e
 			return nil, noTarget("no earlier successful deploy to roll back to")
 		}
 	}
+	if isCompose(p) {
+		if target.ComposeVersion < 1 {
+			return nil, noTarget("deploy %d has no recorded compose version", target.ID)
+		}
+		if _, err := m.opts.Store.GetComposeVersion(ctx, p.Slug, target.ComposeVersion); errors.Is(err, store.ErrNotFound) {
+			return nil, noTarget("compose version %d of deploy %d was pruned", target.ComposeVersion, target.ID)
+		} else if err != nil {
+			return nil, err
+		}
+		return m.enqueue(ctx, p, composeTarget(target.ComposeVersion), req.Source, target.ID)
+	}
 	if target.Commit == "" {
 		return nil, noTarget("deploy %d has no recorded commit", target.ID)
 	}
@@ -309,7 +320,8 @@ func (m *Manager) enqueue(ctx context.Context, p *store.Project, t target, sourc
 	if source == "" {
 		source = SourceAPI
 	}
-	d := &store.Deploy{Project: p.Slug, Ref: t.ref, Source: source, Status: StatusQueued, RollbackOf: rollbackOf}
+	d := &store.Deploy{Project: p.Slug, Ref: t.ref, Source: source, Status: StatusQueued, RollbackOf: rollbackOf,
+		ComposeVersion: t.composeVersion}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

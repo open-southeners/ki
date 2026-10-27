@@ -20,13 +20,14 @@ const (
 
 // Pipeline stages.
 const (
-	StageFetch  = "fetch"
-	StageConfig = "config"
-	StagePolicy = "policy"
-	StagePull   = "pull"
-	StageBuild  = "build"
-	StageUp     = "up"
-	StageHealth = "health"
+	StageFetch   = "fetch"
+	StagePrepare = "prepare"
+	StageConfig  = "config"
+	StagePolicy  = "policy"
+	StagePull    = "pull"
+	StageBuild   = "build"
+	StageUp      = "up"
+	StageHealth  = "health"
 )
 
 // Failure reasons recorded on a failed deploy (Deploy.Error.Reason).

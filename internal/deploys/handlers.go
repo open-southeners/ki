@@ -226,3 +226,8 @@ func (h *Handlers) unsubscribe(_ context.Context, p *rpc.Peer, params json.RawMe
 	}
 	return struct{}{}, nil
 }
+
+// MapError translates a Trigger or Rollback error to the JSON-RPC error the
+// deploys methods answer with, for callers that trigger deploys on behalf of
+// another method.
+func MapError(err error) error { return projectNotFound(err) }
