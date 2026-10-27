@@ -15,12 +15,14 @@ import (
 
 // project mirrors the Project object of the projects.* methods.
 type project struct {
-	Slug          string  `json:"slug"`
-	RepoURL       string  `json:"repo_url"`
-	Trigger       trigger `json:"trigger"`
-	DefaultBranch string  `json:"default_branch"`
-	ComposeFile   string  `json:"compose_file"`
-	Auth          struct {
+	Slug           string  `json:"slug"`
+	Source         string  `json:"source"`
+	ComposeVersion int     `json:"compose_version"`
+	RepoURL        string  `json:"repo_url"`
+	Trigger        trigger `json:"trigger"`
+	DefaultBranch  string  `json:"default_branch"`
+	ComposeFile    string  `json:"compose_file"`
+	Auth           struct {
 		Method    string `json:"method"`
 		PublicKey string `json:"public_key"`
 		TokenUser string `json:"token_user"`
@@ -55,6 +57,18 @@ func (t trigger) String() string {
 	return "default branch (resolved on verify)"
 }
 
+// isCompose reports whether the project was created from a stored Compose file.
+func (p *project) isCompose() bool { return p.Source == "compose" }
+
+// sourceName is the SOURCE shown for a project; agents that predate Compose
+// projects omit the field and only know Git.
+func (p *project) sourceName() string {
+	if p.Source == "" {
+		return "git"
+	}
+	return p.Source
+}
+
 // projectResult is the result of projects.create and projects.update.
 type projectResult struct {
 	Project       project `json:"project"`
@@ -84,6 +98,7 @@ func newProjectsCmd(f *flags) *cobra.Command {
 		newProjectsUpdateCmd(f),
 		newProjectsDeleteCmd(f),
 		newProjectsEnvCmd(f),
+		newProjectsComposeCmd(f),
 		newProjectsExposeCmd(f),
 		newProjectsUnexposeCmd(f),
 	)
@@ -130,21 +145,28 @@ func (t *tokenFlags) read(cmd *cobra.Command) (string, error) {
 
 func newProjectsCreateCmd(f *flags) *cobra.Command {
 	var (
-		slug, branch, tags, compose string
-		tok                         tokenFlags
-		asJSON                      bool
+		slug, branch, tags, compose, composeFile string
+		tok                                      tokenFlags
+		asJSON                                   bool
 	)
 	cmd := &cobra.Command{
-		Use:   "create <git-url>",
-		Short: "Create a project from a Git repository",
+		Use:   "create <git-url> | <slug> --compose-file <file>",
+		Short: "Create a project from a Git repository or a Compose file",
 		Long: `Create a project from a Git repository.
 
 For SSH URLs the agent generates a deploy key; add its public key to the
 repository as a read-only deploy key and run "ki-agent projects verify".
 For private HTTPS repositories pass an access token on standard input
-(--token-stdin) or from a file (--token-file).`,
+(--token-stdin) or from a file (--token-file).
+
+With --compose-file the argument is the project slug and the project is
+created from that Compose file ("-" reads standard input) instead of a Git
+repository; see "ki-agent projects compose".`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if composeFile != "" {
+				return createComposeProject(cmd, f, args[0], composeFile, asJSON)
+			}
 			params := map[string]any{"repo_url": args[0]}
 			if slug != "" {
 				params["slug"] = slug
@@ -193,6 +215,7 @@ For private HTTPS repositories pass an access token on standard input
 	cmd.Flags().StringVar(&branch, "branch", "", "deploy pushes to this branch (default: the repository's default branch)")
 	cmd.Flags().StringVar(&tags, "tags", "", "deploy tags matching this `glob` instead of a branch")
 	cmd.Flags().StringVar(&compose, "compose", "", "Compose file `path` inside the repository (default: auto-detect)")
+	cmd.Flags().StringVar(&composeFile, "compose-file", "", "create a Compose project from this `file` (- for standard input); the argument is the slug")
 	cmd.MarkFlagsMutuallyExclusive("branch", "tags")
 	tok.register(cmd)
 	addJSONFlag(cmd, &asJSON)
@@ -223,9 +246,13 @@ func newProjectsListCmd(f *flags) *cobra.Command {
 				return nil
 			}
 			tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "SLUG\tSTATUS\tTRIGGER\tREPOSITORY")
+			fmt.Fprintln(tw, "SLUG\tSOURCE\tSTATUS\tTRIGGER\tREPOSITORY")
 			for _, p := range list {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Slug, p.Status, p.Trigger, p.RepoURL)
+				if p.isCompose() {
+					fmt.Fprintf(tw, "%s\t%s\t%s\t-\tcompose v%d\n", p.Slug, p.sourceName(), p.Status, p.ComposeVersion)
+					continue
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Slug, p.sourceName(), p.Status, p.Trigger, p.RepoURL)
 			}
 			return tw.Flush()
 		},
@@ -431,6 +458,19 @@ func printProject(w io.Writer, p *project) {
 		}
 	}
 	row("Slug", p.Slug)
+	row("Source", p.sourceName())
+	if p.isCompose() {
+		row("Compose", fmt.Sprintf("v%d", p.ComposeVersion))
+		status := p.Status
+		if p.StatusDetail != "" {
+			status += " - " + p.StatusDetail
+		}
+		row("Status", status)
+		row("Created", p.CreatedAt)
+		row("Updated", p.UpdatedAt)
+		_ = tw.Flush()
+		return
+	}
 	row("Repository", p.RepoURL)
 	row("Trigger", p.Trigger.String())
 	row("Default branch", p.DefaultBranch)

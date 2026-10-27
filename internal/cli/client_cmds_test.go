@@ -250,7 +250,7 @@ func TestProjectsListGetVerify(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("output:\n%s", out)
 	}
-	if f := strings.Fields(lines[0]); strings.Join(f, " ") != "SLUG STATUS TRIGGER REPOSITORY" {
+	if f := strings.Fields(lines[0]); strings.Join(f, " ") != "SLUG SOURCE STATUS TRIGGER REPOSITORY" {
 		t.Errorf("header = %q", lines[0])
 	}
 	// Columns are aligned: every row has REPOSITORY content at the same offset.
