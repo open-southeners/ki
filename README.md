@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="ki-agent logo" width="120" height="120">
+  </picture>
+</p>
+
 # ki-agent
 
 An open-source (Apache-2.0) background agent that manages one Linux server's
