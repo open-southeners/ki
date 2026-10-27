@@ -285,7 +285,9 @@ The slug comes from the repository name (override with `--slug`), the
 deployment trigger is the repository's default branch (`--branch NAME` or
 `--tags GLOB` to change it) and the Compose file is the first of `compose.yaml`,
 `compose.yml`, `docker-compose.yaml`, `docker-compose.yml` (`--compose PATH` to
-choose another). Nothing is stored if the clone fails.
+choose another). Nothing is stored if the clone fails. To deploy prebuilt
+images without a repository, see
+[Compose projects](#compose-projects-images-built-in-ci).
 
 **Private repositories** use one of two credentials:
 
@@ -320,6 +322,8 @@ The same binary talks to a running agent over its Unix socket:
 |---|---|
 | `ki-agent status` | Agent version and uptime, control-plane state, engine, project count |
 | `ki-agent projects create <git-url>` | Create a project (`--slug`, `--branch`/`--tags`, `--compose`, `--token-stdin`/`--token-file`, `--token-user`) |
+| `ki-agent projects create <slug> --compose-file <file>` | Create a [compose project](#compose-projects-images-built-in-ci) from a Compose file (`-` for stdin) |
+| `ki-agent projects compose get\|set\|history <slug>` | Show, store (`--file`, `--note`, `--deploy`) or list versions of a compose project's file |
 | `ki-agent projects list` / `get <slug>` | Show projects |
 | `ki-agent projects verify <slug>` | Check access, clone or update the checkout |
 | `ki-agent projects update <slug>` | Change trigger, Compose file or credentials; `--rotate-webhook-secret`, `--rotate-deploy-key` |
@@ -429,6 +433,76 @@ outside the project folder, build SSH forwarding, `sysctls` other than `net.*`,
 `provider` services and any `runtime` other than `runc`. These are the usual
 host-escape routes. A deploy with violations fails with `policy_violation` and
 the list of violations; nothing is built or started.
+
+### Compose projects (images built in CI)
+
+A **compose project** has no repository: the agent stores the Compose file
+itself, as numbered versions, and only runs prebuilt images. Use it when CI
+builds and pushes the images and the server never needs access to your source
+(or to GitHub); use a [git project](#projects) when the server should check out
+the repository and build from it, or deploy on a push webhook. A compose
+project has no webhook, trigger or credentials, and `projects verify` and
+`projects update --rotate-*` do not apply to it.
+
+```sh
+# Create it from a file (the slug is required); this stores version 1
+ki-agent projects create demo --compose-file compose.yaml
+ki-agent deploy --project demo
+
+# Store a new version and deploy it in one step
+ki-agent projects compose set demo --file compose.yaml --note "bump web to v2" --deploy
+
+# Inspect and roll back
+ki-agent projects compose history demo
+ki-agent projects compose get demo --version 1
+ki-agent deploys rollback demo
+```
+
+A file is checked when it is stored, not only when it is deployed: it must
+parse, pass the [safety policy](#safety-policy) and must not use `build:`,
+`include`, `extends` or local `env_file` paths, since there is no checkout next
+to it. A rejected file is not stored and the error says why (`compose_invalid`,
+or `policy_violation` with `build_not_allowed` for a `build:` section). Pin
+images by tag or digest (`image: ghcr.io/acme/web:1.4.2`); a deploy pulls them
+first, and anything that changes the running services must be a new version.
+Environment variables work as for git projects (`projects env set`) and are
+used for `${VAR}` interpolation. Deploys are `compose@v<N>` (`ki-agent deploy
+--project demo --ref v2`), and `deploys rollback` re-deploys the previous
+version that ran successfully.
+
+**From CI.** Create an admin API token on the server
+(`ki-agent tokens create ci --role admin --expires-in 2160h`; storing a compose
+version needs the admin role) and keep it as a secret. The RPC API takes the
+same JSON as above over the WebSocket (see [Protocol](#protocol)); the token
+works on the loopback listener, and through the edge when `api.public_tokens`
+is `true`. A GitHub Actions job that builds the images, then publishes the new
+Compose file and deploys it:
+
+```yaml
+- name: Deploy to the server
+  env:
+    KI_URL: wss://ki.example.com/rpc          # your agent's API address
+    KI_TOKEN: ${{ secrets.KI_TOKEN }}
+  run: |
+    sed -i "s|:latest|:${GITHUB_SHA}|" compose.yaml     # pin the image this run pushed
+    hello='{"jsonrpc":"2.0","id":1,"method":"agent.hello","params":{"protocol":"1.0.0"}}'
+    set=$(jq -nc --rawfile c compose.yaml --arg n "$GITHUB_SHA" \
+      '{jsonrpc:"2.0",id:2,method:"projects.compose.set",
+        params:{slug:"demo",compose:$c,note:$n,deploy:true}}')
+    { printf '%s\n%s\n' "$hello" "$set"; sleep 5; } |
+      websocat -H "Authorization: Bearer $KI_TOKEN" "$KI_URL" | tee reply.json
+    jq -e 'select(.id==2) | .result.deploy.id' reply.json
+```
+
+The reply carries the queued `deploy`; the step fails when the file is
+rejected (`error.data` has the reason and violations). Follow the result with
+`deploys.get`, or `ki-agent deploys get <id>` on the server.
+
+**IPv6-only servers.** A compose project never contacts GitHub (or any Git
+host), so a server whose projects are all compose projects can run IPv6-only,
+provided the registries it pulls from are reachable over IPv6. A git project
+clones from the repository's host, and GitHub does not serve Git over IPv6, so
+a server with any git project on GitHub needs IPv4 (or a proxy).
 
 ## Users, roles and tokens
 

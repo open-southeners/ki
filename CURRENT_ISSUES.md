@@ -419,3 +419,12 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   depends on real timer scheduling of the adaptive sampling loop.
 - **Fix:** drive the schedule with an injected clock/ticker instead of wall-clock waits, or assert the
   computed interval directly rather than observed sample timing.
+
+## Compose validation rejects required-variable interpolation (M6c)
+
+- **Where:** `internal/compose/validate.go` (`Validate`).
+- **What:** a compose file is validated with an empty `.env`, so `${VAR:?message}` required-variable
+  interpolation fails at `projects.create` / `projects.compose.set` time even when the variable is
+  set on the project, and the file cannot be stored.
+- **Fix:** validate with the project's env names (values sealed, e.g. placeholders) or skip
+  required-variable errors during validation; the deploy itself resolves the real values.

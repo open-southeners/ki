@@ -311,7 +311,8 @@ missing lines.
 ### Projects
 
 The `projects` capability covers `projects.create`, `projects.get`,
-`projects.list`, `projects.update`, `projects.verify`, `projects.delete` and the
+`projects.list`, `projects.update`, `projects.verify`, `projects.delete`, the
+`projects.compose.*` methods (see [Compose projects](#compose-projects)) and the
 service methods (see [Services](#services)).
 Schemas are in the OpenRPC document; this section holds what a schema cannot
 say.
@@ -349,6 +350,49 @@ say.
   removed containers are kept and listed in `kept_volumes` (always an array),
   because they carry no project label and cannot be found afterwards; with
   `volumes: true` they are removed and counted in `volumes`.
+
+#### Compose projects
+
+`projects.create` with `compose` (instead of `repo_url`; `slug` is required)
+registers a **compose project**: a project without a repository whose Compose
+file the agent stores as numbered versions and runs from prebuilt images only.
+`Project.source` is `git` or `compose`; for a compose project `repo_url`,
+`trigger`, `default_branch`, `compose_file`, `auth`, `webhook` and `commit` are
+empty and `compose_version` is the latest version. The project is `ready` at
+once, no `webhook_secret` is returned and its webhook id is random and never
+published (a request to a guessed path gets 404).
+
+| Method | Params | Result |
+|---|---|---|
+| `projects.compose.get` | `slug`, `version?` (0 or absent: latest) | `{version, content, created_at, created_by, note?}`; `NotFound` for an unknown version |
+| `projects.compose.set` | `slug`, `compose`, `note?`, `deploy?` | `{version, deploy?}`; `deploy` is the queued `Deploy` when `deploy: true` |
+| `projects.compose.history` | `slug`, `limit?` | `[{version, created_at, created_by, note?, deployed}]`, newest first |
+
+`get` and `set` are admin methods and `history` (which returns no file content) is a viewer method; all three fail with `-32602` ("not a compose project")
+for a git project; `projects.verify` and `projects.update` fail the same way
+(`not a git project`) for a compose project.
+
+- **Validation.** `compose` (at most 256 KiB) is normalized with
+  `docker compose config` in an empty scratch directory, so `include`,
+  `extends`, `build` and local `env_file` paths cannot resolve, and then
+  checked with the safety policy with `build` forbidden. A rejection is
+  `-32602` with `data: {reason, detail, violations?}`, where `reason` is
+  `compose_invalid` or `policy_violation`; `violations` is
+  `[{service, rule, detail}]` and a `build` section is rule `build_not_allowed`.
+  Nothing is stored on rejection.
+- **Versions.** Each accepted `projects.compose.set` appends the next version
+  (`created_by` is the caller, `note` is free text). With `deploy: true` the
+  agent then triggers a deploy of `compose@v<N>` exactly like `deploys.trigger`
+  (source `cli` on the Unix socket, otherwise `api`); if that fails the version
+  stays stored and the deploy error is returned.
+  The newest 50 versions are kept, plus the one of the latest succeeded deploy.
+- **Deploys.** Their `ref` is `compose@v<N>` (`deploys.trigger` also accepts
+  `v<N>` and `<N>`; absent means the latest) and `commit` is always empty. The
+  pipeline replaces `fetch` with a `prepare` stage that writes the stored
+  version and the project's variables into the project directory, never
+  builds, and enforces `build_not_allowed` again at the `policy` stage.
+  `deploys.rollback` deploys the version of an earlier succeeded deploy.
+  `deploys.trigger` with a branch or sha ref fails `ref_not_allowed`.
 
 `RepositoryError` (`-32010`) carries `data: {reason, detail}`:
 
@@ -447,6 +491,7 @@ empty until checked out), `source`, `status`, `stage`, `error` (only when
   | `stage` | What happens |
   |---|---|
   | `fetch` | Under the project lock: fetch the ref, detached checkout, record `commit`, write `.env` from the project's variables |
+  | `prepare` | Compose projects only, instead of `fetch`: write the stored version as `compose.yaml` and the project's variables as `.env` |
   | `config` | `docker compose config` normalizes the Compose file (with the variables above interpolated); `include` and `extends.file` paths that are absolute or leave the checkout are rejected |
   | `policy` | The normalized model is checked against the safety policy; every violation fails the deploy |
   | `pull` | `docker compose pull --ignore-buildable` refreshes image-only services (skipped when `deploys.pull` is `missing`); registry credentials come from the agent's Docker config (`docker.config_dir`) |
