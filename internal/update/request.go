@@ -62,7 +62,7 @@ func ReadRequest(dir string) (Request, error) {
 	var r Request
 	path := filepath.Join(dir, RequestFile)
 	// O_NONBLOCK keeps a planted FIFO from blocking the open.
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|oNoFollow|oNonBlock, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ELOOP) {
 			_ = os.Remove(path)
@@ -120,7 +120,7 @@ func WriteResult(dir string, res Result, uid, gid int) error {
 // errors.Is(err, os.ErrNotExist) when there is none.
 func ReadResult(dir string) (Result, error) {
 	var res Result
-	f, err := os.OpenFile(filepath.Join(dir, ResultFile), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := os.OpenFile(filepath.Join(dir, ResultFile), os.O_RDONLY|oNoFollow|oNonBlock, 0)
 	if err != nil {
 		return res, err
 	}
@@ -150,7 +150,7 @@ func writeAtomic(dir, name string, b []byte, uid, gid int) error {
 		return err
 	}
 	tmp := filepath.Join(dir, "."+name+"."+hex.EncodeToString(rnd[:]))
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o640)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|oNoFollow, 0o640)
 	if err != nil {
 		return err
 	}

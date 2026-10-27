@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -166,8 +165,7 @@ func (c *Client) run(ctx context.Context, u URL, auth Auth, workDir string, args
 	cmd := exec.CommandContext(ctx, c.bin, args...)
 	cmd.Dir = workDir
 	cmd.Env = c.env(u, auth, keyFile)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	isolate(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr tailBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

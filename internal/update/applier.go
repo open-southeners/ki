@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -458,7 +457,7 @@ func extractEntry(archive []byte, name, dst string) error {
 		if h.Size <= 0 || h.Size > maxBinarySize {
 			return fmt.Errorf("archive entry %s has unreasonable size %d", name, h.Size)
 		}
-		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o700)
+		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|oNoFollow, 0o700)
 		if err != nil {
 			return err
 		}
@@ -512,8 +511,8 @@ func (a *Applier) backupDB() ([]backedUp, error) {
 			return nil, fmt.Errorf("%s is not a regular file", src)
 		}
 		b := backedUp{name: name, mode: st.Mode().Perm(), uid: -1, gid: -1}
-		if sys, ok := st.Sys().(*syscall.Stat_t); ok {
-			b.uid, b.gid = int(sys.Uid), int(sys.Gid)
+		if uid, gid, ok := fileOwner(st); ok {
+			b.uid, b.gid = uid, gid
 		}
 		if err := copyFile(src, dst, 0o600, -1, -1); err != nil {
 			return nil, err
@@ -586,7 +585,7 @@ func copyFile(src, dst string, mode os.FileMode, uid, gid int) error {
 // copyFileTo copies the regular file src to a newly created dst. An existing
 // dst is removed first, never followed.
 func copyFileTo(src, dst string, mode os.FileMode, uid, gid int) error {
-	in, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	in, err := os.OpenFile(src, os.O_RDONLY|oNoFollow, 0)
 	if err != nil {
 		return err
 	}
@@ -599,7 +598,7 @@ func copyFileTo(src, dst string, mode os.FileMode, uid, gid int) error {
 	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|oNoFollow, 0o600)
 	if err != nil {
 		return err
 	}

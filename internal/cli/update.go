@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -158,18 +157,6 @@ func printUpdateStatus(w io.Writer, st update.UpdateStatus) error {
 		}
 	}
 	return tw.Flush()
-}
-
-// dataOwner returns the owner of dir, or -1, -1 when it cannot be told.
-func dataOwner(dir string) (uid, gid int) {
-	st, err := os.Stat(dir)
-	if err != nil {
-		return -1, -1
-	}
-	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
-		return int(sys.Uid), int(sys.Gid)
-	}
-	return -1, -1
 }
 
 // loadUpdateConfig loads the config for the root commands.

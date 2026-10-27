@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -167,7 +166,6 @@ func umaskBits() os.FileMode {
 	return os.FileMode(old)
 }
 
-func syscallUmask(m int) int { return syscall.Umask(m) }
 
 // freeLoopbackAddr returns a 127.0.0.1:port that was free a moment ago.
 func freeLoopbackAddr(t *testing.T) string {
