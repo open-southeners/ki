@@ -106,7 +106,8 @@ services:
 		{"path": filepath.Join(root, "a.env"), "required": false},
 		{"path": "/etc/passwd"},
 	}
-	if len(a.EnvFile) == 0 {
+	inlined := len(a.EnvFile) == 0
+	if inlined {
 		t.Log("this Compose version inlines env_file; only the pre-scan applies")
 	} else if !reflect.DeepEqual(a.EnvFile, want) {
 		t.Errorf("env_file = %v, want %v", a.EnvFile, want)
@@ -118,7 +119,13 @@ services:
 		t.Error("included service missing")
 	}
 
-	// The unresolved /etc/passwd stays in the model, so policy rejects it.
+	// Where the unresolved /etc/passwd stays in the model, policy rejects it
+	// too. Where Compose inlined it, there is nothing left for policy to see;
+	// the deploy pipeline and validation run CheckIncludes before Config, so
+	// such a file is refused before Compose reads it.
+	if inlined {
+		return
+	}
 	p, err := policy.ParseCompose(out)
 	if err != nil {
 		t.Fatal(err)
