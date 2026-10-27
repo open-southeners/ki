@@ -1,0 +1,11 @@
+[Unit]
+Description=ki-agent update request watcher
+
+[Path]
+# The agent writes this file when an admin presses "Update now" in the panel;
+# the service below then installs the release as root.
+PathExists=/var/lib/ki-agent/update/request
+Unit=ki-agent-update.service
+
+[Install]
+WantedBy=paths.target

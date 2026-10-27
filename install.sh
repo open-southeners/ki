@@ -19,7 +19,9 @@ SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki-agent/\.github/wor
 SIGN_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 BIN_PATH="/usr/local/bin/ki-agent"
-UNIT_PATH="/etc/systemd/system/ki-agent.service"
+UNIT_DIR="/etc/systemd/system"
+UNIT_PATH="$UNIT_DIR/ki-agent.service"
+UPDATE_PATH_UNIT="ki-agent-update.path"
 CONFIG_DIR="/etc/ki-agent"
 CONFIG_PATH="/etc/ki-agent/config.yaml"
 SOCKET_PATH="/run/ki-agent/ki.sock"
@@ -425,6 +427,16 @@ main() {
 
 	mkdir -p "$(dirname "$UNIT_PATH")"
 	replace_file "$TMPDIR_KI/extract/ki-agent.service" "$UNIT_PATH" 0644
+	# The update helper (root, started by the path unit when the panel asks for
+	# an update). Releases that predate it simply do not ship the files.
+	update_helper=0
+	if [ -f "$TMPDIR_KI/extract/ki-agent-update.path" ] && [ -f "$TMPDIR_KI/extract/ki-agent-update.service" ]; then
+		replace_file "$TMPDIR_KI/extract/ki-agent-update.service" "$UNIT_DIR/ki-agent-update.service" 0644
+		replace_file "$TMPDIR_KI/extract/ki-agent-update.path" "$UNIT_DIR/$UPDATE_PATH_UNIT" 0644
+		update_helper=1
+	else
+		warn "the archive has no update helper units; installing updates from the panel will not be available"
+	fi
 
 	install -d -m 0755 "$CONFIG_DIR"
 	config_note="kept existing $CONFIG_PATH"
@@ -500,6 +512,13 @@ main() {
 		else
 			systemctl enable --now ki-agent.service
 			service_state="enabled and started"
+		fi
+		if [ "$update_helper" -eq 1 ]; then
+			if [ "$no_start" -eq 1 ]; then
+				systemctl enable "$UPDATE_PATH_UNIT"
+			else
+				systemctl enable --now "$UPDATE_PATH_UNIT"
+			fi
 		fi
 	else
 		warn "systemd is not running; start the agent yourself with: $BIN_PATH run"
