@@ -127,9 +127,11 @@ type Applier struct {
 	Keys map[string]ed25519.PublicKey
 	// Current is the running version.
 	Current string
-	// Target is the binary to replace; empty selects the running executable
-	// with symlinks resolved.
+	// Target is the binary to replace; empty selects BinDir/ki when it exists,
+	// else the running executable with symlinks resolved.
 	Target string
+	// BinDir is where ki is installed; empty selects [DefaultBinDir].
+	BinDir string
 	// BackupDir holds ki-agent.previous and the database backups.
 	BackupDir string
 	// DataDir holds state.db and its WAL files.
@@ -184,13 +186,20 @@ func (a *Applier) prepare() error {
 	if a.Service == nil {
 		a.Service = SystemctlService{}
 	}
+	if a.BinDir == "" {
+		a.BinDir = DefaultBinDir
+	}
 	if a.Target == "" {
-		exe, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("locate running binary: %w", err)
-		}
-		if a.Target, err = filepath.EvalSymlinks(exe); err != nil {
-			return fmt.Errorf("resolve running binary: %w", err)
+		if t, err := filepath.EvalSymlinks(filepath.Join(a.BinDir, cliName)); err == nil {
+			a.Target = t
+		} else {
+			exe, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("locate running binary: %w", err)
+			}
+			if a.Target, err = filepath.EvalSymlinks(exe); err != nil {
+				return fmt.Errorf("resolve running binary: %w", err)
+			}
 		}
 	}
 	if a.Health == nil {
@@ -406,9 +415,26 @@ func checksumFor(checksums []byte, name string) (string, error) {
 	return "", fmt.Errorf("%s is not listed in checksums.txt", name)
 }
 
-// extractBinary writes the archive's ki-agent entry to dst (0700). Only that
-// one regular entry is read; anything else in the archive is ignored.
+// errNoEntry means the archive has no entry of the wanted name.
+var errNoEntry = errors.New("no such archive entry")
+
+// extractBinary writes the archive's ki entry to dst (0700), falling back to
+// ki-agent for releases that predate the rename. Only that one regular entry is
+// read; anything else in the archive is ignored.
 func extractBinary(archive []byte, dst string) error {
+	err := extractEntry(archive, cliName, dst)
+	if errors.Is(err, errNoEntry) {
+		err = extractEntry(archive, binaryName, dst)
+	}
+	if errors.Is(err, errNoEntry) {
+		return fmt.Errorf("archive has no %s or %s entry", cliName, binaryName)
+	}
+	return err
+}
+
+// extractEntry writes the regular archive entry called name to dst, or returns
+// [errNoEntry].
+func extractEntry(archive []byte, name, dst string) error {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return fmt.Errorf("open archive: %w", err)
@@ -418,19 +444,19 @@ func extractBinary(archive []byte, dst string) error {
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("archive has no %s entry", binaryName)
+			return errNoEntry
 		}
 		if err != nil {
 			return fmt.Errorf("read archive: %w", err)
 		}
-		if path.Clean(h.Name) != binaryName {
+		if path.Clean(h.Name) != name {
 			continue
 		}
 		if h.Typeflag != tar.TypeReg {
-			return fmt.Errorf("archive entry %s is not a regular file", binaryName)
+			return fmt.Errorf("archive entry %s is not a regular file", name)
 		}
 		if h.Size <= 0 || h.Size > maxBinarySize {
-			return fmt.Errorf("archive entry %s has unreasonable size %d", binaryName, h.Size)
+			return fmt.Errorf("archive entry %s has unreasonable size %d", name, h.Size)
 		}
 		f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o700)
 		if err != nil {
@@ -441,10 +467,10 @@ func extractBinary(archive []byte, dst string) error {
 			err = cerr
 		}
 		if err != nil {
-			return fmt.Errorf("extract %s: %w", binaryName, err)
+			return fmt.Errorf("extract %s: %w", name, err)
 		}
 		if n != h.Size {
-			return fmt.Errorf("extract %s: size mismatch", binaryName)
+			return fmt.Errorf("extract %s: size mismatch", name)
 		}
 		return nil
 	}

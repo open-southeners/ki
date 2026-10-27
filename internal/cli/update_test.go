@@ -50,7 +50,7 @@ func TestUpdateAsUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"v0.3.0", "v0.4.0 (update available)", "stable", "Run `sudo ki-agent update` to install v0.4.0."} {
+	for _, want := range []string{"v0.3.0", "v0.4.0 (update available)", "stable", "Run `sudo ki agent update` to install v0.4.0."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -96,10 +96,21 @@ func updRoot(t *testing.T, current string, latestTag string) (dataDir string, cf
 	t.Helper()
 	old := updateGeteuid
 	updateGeteuid = func() int { return 0 }
-	oldBase, oldApplier, oldVersion := updateAPIBaseURL, updateApplier, version.Version
+	oldBase, oldApplier, oldVersion, oldLayout := updateAPIBaseURL, updateApplier, version.Version, updateLayout
 	t.Cleanup(func() {
-		updateGeteuid, updateAPIBaseURL, updateApplier, version.Version = old, oldBase, oldApplier, oldVersion
+		updateGeteuid, updateAPIBaseURL, updateApplier, version.Version, updateLayout = old, oldBase, oldApplier, oldVersion, oldLayout
 	})
+	// Layout runs against temp dirs: a 1.0.x install with a single ki-agent.
+	layoutBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(layoutBin, "ki-agent"), []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	updateLayout = func(o *update.LayoutOptions) {
+		o.BinDir = layoutBin
+		o.UnitDir = t.TempDir()
+		o.DaemonReload = func(context.Context) error { return nil }
+	}
+	layoutDirs[t.Name()] = layoutBin
 	version.Version = current
 
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +148,17 @@ func updRoot(t *testing.T, current string, latestTag string) (dataDir string, cf
 	return dataDir, cfgPath
 }
 
+// layoutDirs maps a test name to the bin dir its layout step works on.
+var layoutDirs = map[string]string{}
+
+func assertMigrated(t *testing.T, want bool) {
+	t.Helper()
+	st, err := os.Lstat(filepath.Join(layoutDirs[t.Name()], "ki"))
+	if got := err == nil && st.Mode().IsRegular(); got != want {
+		t.Errorf("ki installed = %v, want %v", got, want)
+	}
+}
+
 type noopService struct{}
 
 func (noopService) Stop(context.Context) error  { return nil }
@@ -149,7 +171,7 @@ func runUpdateRootCLI(t *testing.T, cfgPath, stdin string, args ...string) (stri
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetIn(strings.NewReader(stdin))
-	cmd.SetArgs(append([]string{"--config", cfgPath, "--socket", filepath.Join(t.TempDir(), "none.sock")}, args...))
+	cmd.SetArgs(append([]string{"agent", "--config", cfgPath, "--socket", filepath.Join(t.TempDir(), "none.sock")}, args...))
 	err := cmd.Execute()
 	return out.String(), err
 }
@@ -160,16 +182,22 @@ func TestUpdateRootCheckAndUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Update v0.3.0 -> v0.4.0", "line one", "line two", "https://example/r", "sudo ki-agent update"} {
+	for _, want := range []string{"Update v0.3.0 -> v0.4.0", "line one", "line two", "https://example/r", "sudo ki agent update"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
 
+	assertMigrated(t, false) // --check must not touch the install
+
 	_, cfg = updRoot(t, "v0.4.0", "v0.4.0")
 	if out, err = runUpdateRootCLI(t, cfg, "", "update"); err != nil || !strings.Contains(out, "up to date") {
 		t.Errorf("up to date: %q, %v", out, err)
 	}
+	if !strings.Contains(out, "layout: renamed ki-agent to ki") {
+		t.Errorf("layout step did not report: %s", out)
+	}
+	assertMigrated(t, true)
 	if _, err = runUpdateRootCLI(t, cfg, "", "update", "--version", "v0.3.0"); err == nil || !strings.Contains(err.Error(), "downgrades are refused") {
 		t.Errorf("downgrade err = %v", err)
 	}

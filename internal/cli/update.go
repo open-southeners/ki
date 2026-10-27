@@ -22,7 +22,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/version"
 )
 
-// Exit codes of `ki-agent update` beyond the generic 1.
+// Exit codes of `ki agent update` beyond the generic 1.
 const exitRolledBack = 2
 
 // maxNoteLines is how many lines of the release notes are shown before an
@@ -37,6 +37,8 @@ var (
 	updateAPIBaseURL = ""
 	// updateApplier adjusts the applier before it runs.
 	updateApplier = func(*update.Applier) {}
+	// updateLayout adjusts the install layout options before they run.
+	updateLayout = func(*update.LayoutOptions) {}
 )
 
 // exitError makes the process exit with a specific code.
@@ -69,7 +71,7 @@ func newUpdateCmd(f *flags) *cobra.Command {
 		Long: `Check for and install a new agent release from GitHub Releases.
 
 As a regular user it shows what the running agent knows about the latest
-release (--check asks it to look now). As root (sudo ki-agent update) it looks
+release (--check asks it to look now). As root (sudo ki agent update) it looks
 the release up on GitHub, shows the release notes, asks for confirmation (or
 use --yes), verifies the download against the release signing key and its
 checksum, swaps the binary, restarts the agent and rolls back if the new
@@ -117,9 +119,9 @@ func runUpdateUser(cmd *cobra.Command, f *flags, target string, check bool) erro
 	w := cmd.OutOrStdout()
 	switch {
 	case target != "":
-		fmt.Fprintf(w, "\nRun `sudo ki-agent update --version %s` to install it.\n", target)
+		fmt.Fprintf(w, "\nRun `sudo ki agent update --version %s` to install it.\n", target)
 	case st.UpdateAvailable && st.Latest != nil:
-		fmt.Fprintf(w, "\nRun `sudo ki-agent update` to install %s.\n", st.Latest.Tag)
+		fmt.Fprintf(w, "\nRun `sudo ki agent update` to install %s.\n", st.Latest.Tag)
 	}
 	return nil
 }
@@ -219,6 +221,20 @@ func outcome(res update.Result, err error) error {
 	return &exitError{code: 1, msg: "update failed: " + err.Error()}
 }
 
+// ensureLayout migrates the install to the ki + ki-agent alias layout and
+// reports what changed. A failure is reported but never stops the update.
+func ensureLayout(cmd *cobra.Command) {
+	opts := update.LayoutOptions{Log: slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))}
+	updateLayout(&opts)
+	sum, err := update.EnsureLayout(cmd.Context(), opts)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not update the install layout: %v\n", err)
+	}
+	for _, l := range sum.Lines() {
+		fmt.Fprintf(cmd.ErrOrStderr(), "layout: %s\n", l)
+	}
+}
+
 // runUpdateFromRequest is what ki-agent-update.service runs: it installs the
 // release the agent asked for and records the result under the request's id.
 func runUpdateFromRequest(cmd *cobra.Command, f *flags) error {
@@ -230,6 +246,7 @@ func runUpdateFromRequest(cmd *cobra.Command, f *flags) error {
 	if err != nil {
 		return err
 	}
+	ensureLayout(cmd)
 	cmd.PrintErrf("installing %s, requested by %s\n", req.Version, req.RequestedBy)
 	a := newApplier(cmd, f, cfg)
 	res, applyErr := a.Apply(cmd.Context(), req.Version)
@@ -245,6 +262,9 @@ func runUpdateRoot(cmd *cobra.Command, f *flags, target string, yes, check bool)
 	cfg, err := loadUpdateConfig(f)
 	if err != nil {
 		return err
+	}
+	if !check {
+		ensureLayout(cmd)
 	}
 	if target != "" && !update.ValidTag(target) {
 		return fmt.Errorf("invalid --version %q; expected something like v1.2.3", target)
@@ -263,7 +283,7 @@ func runUpdateRoot(cmd *cobra.Command, f *flags, target string, yes, check bool)
 		if target != "" {
 			return fmt.Errorf("%s is not newer than the running version %s; downgrades are refused", rel.Tag, current)
 		}
-		fmt.Fprintf(w, "ki-agent %s is up to date.\n", current)
+		fmt.Fprintf(w, "ki %s is up to date.\n", current)
 		return nil
 	}
 	if !released && target == "" {
@@ -273,7 +293,7 @@ func runUpdateRoot(cmd *cobra.Command, f *flags, target string, yes, check bool)
 	}
 	printReleaseNotes(w, current, rel)
 	if check {
-		fmt.Fprintf(w, "\nRun `sudo ki-agent update` to install %s.\n", rel.Tag)
+		fmt.Fprintf(w, "\nRun `sudo ki agent update` to install %s.\n", rel.Tag)
 		return nil
 	}
 
@@ -297,7 +317,7 @@ func runUpdateRoot(cmd *cobra.Command, f *flags, target string, yes, check bool)
 	if err := outcome(res, applyErr); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "Updated ki-agent %s -> %s.\n", res.From, res.To)
+	fmt.Fprintf(w, "Updated ki %s -> %s.\n", res.From, res.To)
 	return nil
 }
 

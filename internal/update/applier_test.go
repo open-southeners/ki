@@ -54,6 +54,7 @@ type fakeRelease struct {
 	tag       string
 	signedTag string // tag the signature binds to; defaults to tag
 	script    string
+	onlyAlias bool // archive carries only the legacy ki-agent entry
 	badSum    bool
 	key       ed25519.PrivateKey
 	archive   []byte
@@ -62,7 +63,7 @@ type fakeRelease struct {
 }
 
 func fakeScript(tag string) string {
-	return "#!/bin/sh\necho \"ki-agent " + tag + "\"\n"
+	return "#!/bin/sh\necho \"ki " + tag + " (commit abc1234)\"\n"
 }
 
 func (r *fakeRelease) build(t *testing.T) {
@@ -76,15 +77,25 @@ func (r *fakeRelease) build(t *testing.T) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	// An unrelated entry first, to prove only ki-agent is picked.
+	// An unrelated entry first, to prove only the binary is picked.
 	if err := tw.WriteHeader(&tar.Header{Name: "README.md", Mode: 0o644, Size: 2, Typeflag: tar.TypeReg}); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = tw.Write([]byte("hi"))
-	if err := tw.WriteHeader(&tar.Header{Name: "ki-agent", Mode: 0o755, Size: int64(len(r.script)), Typeflag: tar.TypeReg}); err != nil {
-		t.Fatal(err)
+	names := []string{"ki-agent", "ki"}
+	if r.onlyAlias {
+		names = names[:1]
 	}
-	_, _ = tw.Write([]byte(r.script))
+	for _, name := range names {
+		body := r.script
+		if name == "ki-agent" && !r.onlyAlias {
+			body = "#!/bin/sh\necho alias-entry-must-not-be-installed\n"
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = tw.Write([]byte(body))
+	}
 	_ = tw.Close()
 	_ = gz.Close()
 	r.archive = buf.Bytes()
@@ -220,6 +231,41 @@ func TestApplyHappyPath(t *testing.T) {
 	}
 	if fmt.Sprint(f.svc.events) != "[stop start]" {
 		t.Errorf("events = %v", f.svc.events)
+	}
+}
+
+func TestApplyPrefersKiEntry(t *testing.T) {
+	pub, priv := newKey(t)
+	f := newFixture(t, &fakeRelease{tag: testTarget, key: priv}, pub)
+	if _, err := f.a.Apply(context.Background(), testTarget); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, f.target); got != fakeScript(testTarget) {
+		t.Errorf("target = %q", got)
+	}
+}
+
+func TestApplyFallsBackToKiAgentEntry(t *testing.T) {
+	pub, priv := newKey(t)
+	f := newFixture(t, &fakeRelease{tag: testTarget, key: priv, onlyAlias: true}, pub)
+	if _, err := f.a.Apply(context.Background(), testTarget); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, f.target); got != fakeScript(testTarget) {
+		t.Errorf("target = %q", got)
+	}
+}
+
+func TestExtractBinaryNeedsAnEntry(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: "README.md", Mode: 0o644, Size: 2, Typeflag: tar.TypeReg})
+	_, _ = tw.Write([]byte("hi"))
+	_ = tw.Close()
+	_ = gz.Close()
+	if err := extractBinary(buf.Bytes(), filepath.Join(t.TempDir(), "out")); err == nil {
+		t.Fatal("expected error for an archive without the binary")
 	}
 }
 
