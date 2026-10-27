@@ -51,6 +51,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newServicesCmd(&f))
 	cmd.AddCommand(newAWSCmd(&f))
 	cmd.AddCommand(newTunnelCmd(&f))
+	cmd.AddCommand(newUpdateCmd(&f))
 
 	return cmd
 }
