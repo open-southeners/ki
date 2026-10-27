@@ -1,9 +1,11 @@
 name: Release
 
-# Pushing a vX.Y.Z (or vX.Y.Z-rc.N) tag runs two jobs. `release` creates the
-# GitHub release with the matching CHANGELOG.md section as its notes (tags with
-# a suffix are marked pre-release). `build` then runs GoReleaser, which builds,
-# signs and uploads the assets to that release without touching its notes.
+# Pushing a vX.Y.Z (or vX.Y.Z-rc.N) tag first runs the full CI (ci.yml) on the
+# tagged commit; nothing is published unless it passes. `release` then creates
+# the GitHub release with the matching CHANGELOG.md section as its notes (tags
+# with a suffix are marked pre-release), and `build` runs GoReleaser, which
+# builds, signs and uploads the assets to that release without touching its
+# notes.
 on:
   push:
     tags:
@@ -14,8 +16,15 @@ permissions:
   contents: write
 
 jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release:
     name: Create GitHub Release
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
