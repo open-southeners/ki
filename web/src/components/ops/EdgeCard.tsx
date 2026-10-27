@@ -30,12 +30,27 @@ export function EdgeCard() {
           <ErrorState title="Edge status unavailable" error={q.error} onRetry={() => void q.refetch()} className="p-0" />
         ) : (
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-            <dt className="label-mono self-center">Ports</dt>
-            <dd>
-              <Mono>
-                {q.data.http_port} / {q.data.https_port}
-              </Mono>
-            </dd>
+            {q.data.mode === "behind" ? (
+              <>
+                <dt className="label-mono self-center">Mode</dt>
+                <dd>
+                  behind <span className="text-xs text-muted-foreground">TLS on the front proxy</span>
+                </dd>
+                <dt className="label-mono self-center">Listen</dt>
+                <dd>
+                  <Mono>{q.data.listen ?? "–"}</Mono>
+                </dd>
+              </>
+            ) : (
+              <>
+                <dt className="label-mono self-center">Ports</dt>
+                <dd>
+                  <Mono>
+                    {q.data.http_port} / {q.data.https_port}
+                  </Mono>
+                </dd>
+              </>
+            )}
             <dt className="label-mono self-center">Routes</dt>
             <dd>
               <Mono>{q.data.routes}</Mono>
@@ -43,7 +58,7 @@ export function EdgeCard() {
             <dt className="label-mono self-center">Certs</dt>
             <dd>
               <Mono>{q.data.certificates.length}</Mono>
-              {q.data.certificates.length === 0 && (
+              {q.data.certificates.length === 0 && q.data.mode !== "behind" && (
                 <span className="ml-2 text-xs text-muted-foreground">
                   self-signed until {formatDateTime(q.data.self_signed.not_after)}
                 </span>

@@ -24,24 +24,26 @@ export default function Overview() {
           </div>
           <ProjectsCard compact />
         </section>
-        <section aria-labelledby="ov-edge" className="grid gap-3 md:max-w-md">
-          <h2 id="ov-edge" className="sr-only">
-            Edge
-          </h2>
-          <EdgeCard />
-        </section>
-        <section aria-labelledby="ov-tunnel" className="grid gap-3 md:max-w-md">
-          <h2 id="ov-tunnel" className="sr-only">
-            Tunnel
-          </h2>
-          <TunnelCard />
-        </section>
-        <section aria-labelledby="ov-aws" className="grid gap-3 md:max-w-md">
-          <h2 id="ov-aws" className="sr-only">
-            AWS
-          </h2>
-          <AwsCard />
-        </section>
+        <div className="grid items-start gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <section aria-labelledby="ov-edge" className="grid gap-3">
+            <h2 id="ov-edge" className="sr-only">
+              Edge
+            </h2>
+            <EdgeCard />
+          </section>
+          <section aria-labelledby="ov-tunnel" className="grid gap-3">
+            <h2 id="ov-tunnel" className="sr-only">
+              Tunnel
+            </h2>
+            <TunnelCard />
+          </section>
+          <section aria-labelledby="ov-aws" className="grid gap-3">
+            <h2 id="ov-aws" className="sr-only">
+              AWS
+            </h2>
+            <AwsCard />
+          </section>
+        </div>
       </div>
     </>
   );
