@@ -51,6 +51,7 @@ var MethodRoles = map[string]Role{
 	"projects.compose.get":     RoleAdmin,
 	"projects.compose.set":     RoleAdmin,
 	"projects.compose.history": RoleViewer,
+	"projects.image.set":       RoleAdmin,
 	"projects.update":          RoleAdmin,
 	"projects.verify":          RoleAdmin,
 	"projects.delete":          RoleAdmin,

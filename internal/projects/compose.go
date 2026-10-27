@@ -117,7 +117,7 @@ func (s *Service) createCompose(ctx context.Context, in CreateParams) (*Result, 
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	version, err := s.st.AddComposeVersion(ctx, in.Slug, in.Compose, in.CreatedBy, "")
+	version, err := s.st.AddComposeVersion(ctx, in.Slug, in.Compose, in.CreatedBy, in.note)
 	if err != nil {
 		_ = s.st.DeleteProject(ctx, in.Slug)
 		_ = os.RemoveAll(dir)

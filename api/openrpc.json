@@ -568,8 +568,8 @@
     {
       "name": "projects.create",
       "x-role": "admin",
-      "summary": "Register a Git repository, or a stored Compose file, as a project.",
-      "description": "Pass repo_url for a git project or compose for a compose project (mutually exclusive; one of them is required). A compose project has no repository: the content is validated (compose_invalid or policy_violation, with build sections rejected as build_not_allowed, are reported as InvalidParams data) and stored as version 1, the project is ready at once, no webhook secret is returned and its webhook is not reachable; slug is required. Deploy it with deploys.trigger and change it with projects.compose.set. For a git project, auth is inferred: token given means https_token (the URL must be https); an ssh URL means ssh_key (the agent generates a deploy key); an https URL without a token means none. For none and https_token the repository is probed and cloned before anything is stored: any failure leaves nothing behind. For ssh_key the project is stored as pending_access without cloning and the public key is returned; add it as a read-only deploy key, then call projects.verify. The webhook secret is returned only here and on rotation.",
+      "summary": "Register a Git repository, a stored Compose file, or a single image as a project.",
+      "description": "Pass repo_url for a git project, compose for a compose project or image for an image project (mutually exclusive; one of them is required). A compose project has no repository: the content is validated (compose_invalid or policy_violation, with build sections rejected as build_not_allowed, are reported as InvalidParams data) and stored as version 1, the project is ready at once, no webhook secret is returned and its webhook is not reachable; slug is required. Deploy it with deploys.trigger and change it with projects.compose.set. For a git project, auth is inferred: token given means https_token (the URL must be https); an ssh URL means ssh_key (the agent generates a deploy key); an https URL without a token means none. For none and https_token the repository is probed and cloned before anything is stored: any failure leaves nothing behind. For ssh_key the project is stored as pending_access without cloning and the public key is returned; add it as a read-only deploy key, then call projects.verify. The webhook secret is returned only here and on rotation. An image project is a compose project whose Compose file the agent generates from the image spec (stored as version 1 with the note \"generated from image\", validated like any version; slug is required); the image must carry a tag or digest, latest is refused. Release a new image with projects.image.set.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -634,6 +634,13 @@
           "schema": {
             "type": "string",
             "minLength": 1
+          }
+        },
+        {
+          "name": "image",
+          "description": "Image spec of an image project; the agent generates the Compose file. Slug is required. Mutually exclusive with repo_url and compose.",
+          "schema": {
+            "$ref": "#/components/schemas/ImageSpec"
           }
         }
       ],
@@ -1009,6 +1016,103 @@
             "version": {
               "type": "integer",
               "description": "The new version number."
+            },
+            "deploy": {
+              "$ref": "#/components/schemas/Deploy",
+              "description": "The queued deploy; present only when deploy was true."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/DeployError"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "projects.image.set",
+      "x-role": "admin",
+      "summary": "Change the image of one service of a compose project and store the result as a new version, optionally deploying it.",
+      "description": "Works on any compose project. Give exactly one of image (a full new reference) or tag (replaces the tag or digest of the service's current reference). The pinning rule applies: a tag or digest is required and latest is refused. The rest of the Compose file is kept; the result is validated like projects.compose.set and stored as the next version (nothing is stored on rejection). service defaults to the only service that has an image; if several do, the call fails with InvalidParams listing them. With deploy true a deploy of the new version is queued and returned; if queuing fails the version stays stored and the error is returned.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "image",
+          "description": "Full new image reference, with tag or digest. Mutually exclusive with tag.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "tag",
+          "description": "New tag or digest (for example 1.2.4 or sha256:...) for the service's current reference. Mutually exclusive with image.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "service",
+          "description": "Service to change. Defaults to the only service with an image.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "note",
+          "description": "Free-text note kept with the version. Defaults to the new image reference.",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "deploy",
+          "description": "Queue a deploy of the new version. Default false.",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "stored",
+        "schema": {
+          "type": "object",
+          "required": [
+            "version",
+            "image"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "description": "The new version number."
+            },
+            "image": {
+              "type": "string",
+              "description": "The image reference now set on the service."
             },
             "deploy": {
               "$ref": "#/components/schemas/Deploy",
@@ -3183,6 +3287,56 @@
           "error": {
             "type": "string",
             "description": "Present when the stream ended because of a failure rather than the container stopping."
+          }
+        }
+      },
+      "ImageSpec": {
+        "type": "object",
+        "description": "Inputs of an image project; the agent generates a single-service Compose file from them.",
+        "required": [
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Full image reference with registry, for example registry.example.com/team/app:1.2.3, ghcr.io/acme/web@sha256:... or nginx:1.27. A tag or digest is required; latest is refused."
+          },
+          "service": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$",
+            "description": "Service name. Default app."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Container port to publish through the edge."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains routed to the port; requires port."
+          },
+          "path": {
+            "type": "string",
+            "description": "Path prefix to route."
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Named volumes as name:/container/path[:ro]; bind mounts are refused."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Plain, non-secret variables written to the Compose file. Secrets go through projects.env.set."
           }
         }
       },

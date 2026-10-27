@@ -250,9 +250,14 @@ type CreateParams struct {
 	// Compose is the compose file content of a compose project (instead of
 	// RepoURL); Slug is then required.
 	Compose string `json:"compose"`
+	// Image generates a compose project from an image reference (instead of
+	// RepoURL or Compose); Slug is then required.
+	Image *ImageSpec `json:"image,omitempty"`
 	// CreatedBy names who creates the project (version 1 of a compose
 	// project); filled in by the handler from the caller's principal.
 	CreatedBy string `json:"-"`
+	// note is the note of version 1 (set for generated files).
+	note string
 }
 
 // UpdateParams are the arguments of projects.update.
@@ -474,11 +479,19 @@ func (s *Service) install(g *staged, slug string) error {
 // cloned first and nothing is persisted on failure; for ssh_key a deploy key
 // is generated and the project waits in pending_access.
 func (s *Service) Create(ctx context.Context, in CreateParams) (*Result, error) {
+	n := 0
+	for _, set := range []bool{in.RepoURL != "", in.Compose != "", in.Image != nil} {
+		if set {
+			n++
+		}
+	}
 	switch {
-	case in.RepoURL != "" && in.Compose != "":
-		return nil, invalidf("repo_url and compose are mutually exclusive")
-	case in.RepoURL == "" && in.Compose == "":
-		return nil, invalidf("repo_url or compose is required")
+	case n > 1:
+		return nil, invalidf("repo_url, compose and image are mutually exclusive")
+	case n == 0:
+		return nil, invalidf("repo_url, compose or image is required")
+	case in.Image != nil:
+		return s.createImage(ctx, in)
 	case in.Compose != "":
 		return s.createCompose(ctx, in)
 	}

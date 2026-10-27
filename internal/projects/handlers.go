@@ -27,6 +27,8 @@ const (
 	MethodComposeSet     = "projects.compose.set"
 	MethodComposeHistory = "projects.compose.history"
 
+	MethodImageSet = "projects.image.set"
+
 	MethodExpose   = "projects.expose"
 	MethodUnexpose = "projects.unexpose"
 
@@ -60,6 +62,7 @@ func (h *Handlers) Register(r *rpc.Router) {
 	r.Handle(MethodComposeGet, h.composeGet)
 	r.Handle(MethodComposeSet, h.composeSet)
 	r.Handle(MethodComposeHistory, h.composeHistory)
+	r.Handle(MethodImageSet, h.imageSet)
 	r.Handle(MethodExpose, h.expose)
 	r.Handle(MethodUnexpose, h.unexpose)
 	r.Handle(MethodServices, h.services)
@@ -333,4 +336,20 @@ func (h *Handlers) composeHistory(ctx context.Context, _ *rpc.Peer, params json.
 		return nil, mapError(err)
 	}
 	return hs, nil
+}
+
+func (h *Handlers) imageSet(ctx context.Context, peer *rpc.Peer, params json.RawMessage) (any, error) {
+	var in ImageSetParams
+	if err := decodeSlug(params, &in, &in.Slug); err != nil {
+		return nil, err
+	}
+	in.CreatedBy = principalName(peer)
+	if peer != nil && rpc.TransportOf(peer) == rpc.TransportUnix {
+		ctx = context.WithValue(ctx, viaCLIKey{}, true)
+	}
+	res, err := h.svc.ImageSet(ctx, in)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return res, nil
 }
