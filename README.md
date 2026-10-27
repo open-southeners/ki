@@ -323,6 +323,8 @@ The same binary talks to a running agent over its Unix socket:
 | `ki-agent status` | Agent version and uptime, control-plane state, engine, project count |
 | `ki-agent projects create <git-url>` | Create a project (`--slug`, `--branch`/`--tags`, `--compose`, `--token-stdin`/`--token-file`, `--token-user`) |
 | `ki-agent projects create <slug> --compose-file <file>` | Create a [compose project](#compose-projects-images-built-in-ci) from a Compose file (`-` for stdin) |
+| `ki-agent projects create <slug> --image <ref>` | Create an [image project](#image-projects) (`--port`, `--domain`, `--path`, `--volume`, `--env`, `--service`) |
+| `ki-agent projects image set <slug> <tag>` | Release a new image tag (or `--image <ref>`) of a compose project; `--deploy` |
 | `ki-agent projects compose get\|set\|history <slug>` | Show, store (`--file`, `--note`, `--deploy`) or list versions of a compose project's file |
 | `ki-agent projects list` / `get <slug>` | Show projects |
 | `ki-agent projects verify <slug>` | Check access, clone or update the checkout |
@@ -497,6 +499,72 @@ Compose file and deploys it:
 The reply carries the queued `deploy`; the step fails when the file is
 rejected (`error.data` has the reason and violations). Follow the result with
 `deploys.get`, or `ki-agent deploys get <id>` on the server.
+
+#### Image projects
+
+Most apps are one container. For those you do not need to write a Compose
+file: give the agent an image, a port and a domain and it generates the file,
+stores it as version 1 and runs it like any compose project (policy, history,
+rollback, environment variables).
+
+```sh
+ki-agent projects create demo --image registry.example.com/team/app:1.4.2 \
+  --port 8080 --domain demo.example.com --volume data:/app/data --env GREETING=hi
+ki-agent projects compose get demo        # the generated file
+ki-agent deploy --project demo
+```
+
+```yaml
+services:
+  app:
+    image: registry.example.com/team/app:1.4.2
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      GREETING: "hi"
+    expose:
+      - "8080"
+    volumes:
+      - data:/app/data
+    labels:
+      ki.expose.port: "8080"
+      ki.expose.domains: "demo.example.com"
+volumes:
+  data:
+```
+
+The image must carry a tag or digest (`nginx:1.27`, `ghcr.io/acme/web@sha256:...`);
+`latest` and untagged references are refused. Volumes are named volumes only
+(`name:/path[:ro]`; bind mounts are refused), `--env` is for plain values and
+secrets go through `projects env set`. The panel's **New project** button
+offers the same form. For anything more (several services, commands), use a
+Compose file.
+
+To release, change the tag; this works on any compose project and keeps the
+rest of the file:
+
+```sh
+ki-agent projects image set demo 1.4.3 --deploy
+ki-agent projects image set demo --image registry.example.com/team/app:1.4.3   # full reference
+ki-agent deploys rollback demo                                                  # back to the previous version
+```
+
+**From CI.** The pipeline only has to send the new tag; it does not need the
+Compose file. With the same admin token and connection as above, replace the
+`projects.compose.set` call by:
+
+```sh
+set=$(jq -nc --arg t "$GITHUB_SHA" \
+  '{jsonrpc:"2.0",id:2,method:"projects.image.set",
+    params:{slug:"demo",tag:$t,note:$t,deploy:true}}')
+```
+
+The reply is `{version, image, deploy}`. For an image in a private registry the
+agent logs in with its own Docker configuration, as for git projects (see
+[Private registries](#private-registries-ecr)); a Registries tab in the panel
+to manage logins is planned.
 
 **IPv6-only servers.** A compose project never contacts GitHub (or any Git
 host), so a server whose projects are all compose projects can run IPv6-only,

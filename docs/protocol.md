@@ -366,12 +366,27 @@ published (a request to a guessed path gets 404).
 |---|---|---|
 | `projects.compose.get` | `slug`, `version?` (0 or absent: latest) | `{version, content, created_at, created_by, note?}`; `NotFound` for an unknown version |
 | `projects.compose.set` | `slug`, `compose`, `note?`, `deploy?` | `{version, deploy?}`; `deploy` is the queued `Deploy` when `deploy: true` |
+| `projects.image.set` | `slug`, `image?` or `tag?` (exactly one), `service?`, `note?`, `deploy?` | `{version, image, deploy?}`; admin |
 | `projects.compose.history` | `slug`, `limit?` | `[{version, created_at, created_by, note?, deployed}]`, newest first |
 
 `get` and `set` are admin methods and `history` (which returns no file content) is a viewer method; all three fail with `-32602` ("not a compose project")
 for a git project; `projects.verify` and `projects.update` fail the same way
 (`not a git project`) for a compose project.
 
+- **Image projects.** `projects.create` with `image` (instead of `compose`;
+  `slug` is required) takes `{image, service?, port?, domains?, path?,
+  volumes?, env?}` and generates the Compose file: one service (`app` by
+  default) with `restart: unless-stopped`, the project's `.env` (optional),
+  `environment` from `env` (a `{KEY: value}` object of plain values),
+  `expose` and `ki.expose.*` labels from `port`, `domains` and `path`, and
+  named `volumes`. `image` needs a tag or digest (`latest` is refused),
+  `domains` need `port`, and bind mounts are refused, all as `-32602`. It is
+  stored as version 1 with the note `generated from image`. `projects.image.set`
+  changes the image of one service of any compose project: `image` is a full
+  reference, `tag` replaces the tag or digest of the current one; `service`
+  defaults to the only service with an image (several: `-32602` listing them).
+  The new file is validated and stored as the next version (default note
+  `image <ref>`), and `deploy: true` queues a deploy as for `projects.compose.set`.
 - **Validation.** `compose` (at most 256 KiB) is normalized with
   `docker compose config` in an empty scratch directory, so `include`,
   `extends`, `build` and local `env_file` paths cannot resolve, and then
