@@ -149,7 +149,9 @@ func (c *checker) service(name string, s *Service) {
 	for _, m := range s.Volumes {
 		c.mount(name, m)
 	}
-	if s.Build != nil {
+	if s.Build != nil && c.opts.NoBuild {
+		c.add(name, RuleBuildNotAllowed, "compose projects cannot build: service has a build section")
+	} else if s.Build != nil {
 		c.buildContext(name, "build.context", s.Build.Context)
 		c.dockerfile(name, s.Build)
 		for _, k := range s.Build.SSH {

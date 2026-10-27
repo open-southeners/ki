@@ -72,7 +72,7 @@ func TestRuleFixtures(t *testing.T) {
 		})
 	}
 	for _, rule := range Rules {
-		if rule != RuleProjectRoot && rule != RuleUnparseable && !covered[rule] {
+		if rule != RuleProjectRoot && rule != RuleUnparseable && rule != RuleBuildNotAllowed && !covered[rule] {
 			t.Errorf("rule %q has no fixture", rule)
 		}
 	}
@@ -582,5 +582,21 @@ func TestReservedLabelRule(t *testing.T) {
 func TestParseLabelsBadType(t *testing.T) {
 	if _, err := ParseCompose([]byte(`{"services":{"a":{"labels":"x"}}}`)); err == nil {
 		t.Fatal("want error for string labels")
+	}
+}
+
+func TestNoBuildOption(t *testing.T) {
+	p, root := loadFixture(t, "build_ssh")
+	for _, v := range Check(root, p, Options{}) {
+		if v.Rule == RuleBuildNotAllowed {
+			t.Fatalf("build_not_allowed reported without NoBuild: %+v", v)
+		}
+	}
+	found := false
+	for _, v := range Check(root, p, Options{NoBuild: true}) {
+		found = found || (v.Rule == RuleBuildNotAllowed && v.Service == "a")
+	}
+	if !found {
+		t.Fatal("NoBuild did not report build_not_allowed")
 	}
 }

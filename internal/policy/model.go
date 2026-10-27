@@ -101,6 +101,10 @@ type Options struct {
 	// or without the CAP_ prefix. nil selects [DefaultAllowedCapabilities]; an
 	// empty non-nil slice allows none. ALL is never allowed.
 	AllowedCapabilities []string
+	// NoBuild additionally rejects every service with a `build` section
+	// ([RuleBuildNotAllowed]); set for compose projects, which only run
+	// prebuilt images.
+	NoBuild bool
 }
 
 // DefaultAllowedCapabilities is used when Options.AllowedCapabilities is nil.
@@ -171,6 +175,9 @@ const (
 	// RuleBuildSSH rejects `build.ssh` (any value, including default), which
 	// forwards the host's SSH agent into the build.
 	RuleBuildSSH = "build_ssh"
+	// RuleBuildNotAllowed rejects any service with a `build` section. It is
+	// only applied when [Options.NoBuild] is set (compose projects).
+	RuleBuildNotAllowed = "build_not_allowed"
 	// RuleBuildContext rejects a build context, additional context or
 	// Dockerfile (relative ones are taken relative to the context) that is a
 	// local path outside the project root. Remote contexts are fine. Files
@@ -211,6 +218,6 @@ var Rules = []string{
 	RulePrivileged, RuleNetworkMode, RulePid, RuleIpc, RuleUts, RuleUsernsMode,
 	RuleCgroup, RuleCapAdd, RuleDevices, RuleDeviceCgroupRules, RuleSecurityOpt,
 	RuleCgroupParent, RuleVolumesFrom, RuleBindMount, RuleDockerSocket,
-	RuleVolumeDriverOpts, RuleExternalVolume, RuleBuildSSH, RuleBuildContext, RuleEnvFile, RuleConfigFile,
+	RuleVolumeDriverOpts, RuleExternalVolume, RuleBuildNotAllowed, RuleBuildSSH, RuleBuildContext, RuleEnvFile, RuleConfigFile,
 	RuleSecretFile, RuleSysctls, RuleProvider, RuleRuntime, RuleReservedLabel, RuleProjectRoot, RuleUnparseable,
 }
