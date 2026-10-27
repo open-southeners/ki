@@ -48,6 +48,9 @@ var MethodRoles = map[string]Role{
 	// admin
 	"containers.remove":        RoleAdmin,
 	"projects.create":          RoleAdmin,
+	"projects.compose.get":     RoleAdmin,
+	"projects.compose.set":     RoleAdmin,
+	"projects.compose.history": RoleViewer,
 	"projects.update":          RoleAdmin,
 	"projects.verify":          RoleAdmin,
 	"projects.delete":          RoleAdmin,

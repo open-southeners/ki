@@ -192,6 +192,9 @@ func (s *Service) WebhookHook(ctx context.Context, webhookID string) (WebhookHoo
 	if err != nil {
 		return WebhookHook{}, err
 	}
+	if p.Source == SourceCompose {
+		return WebhookHook{}, store.ErrNotFound // compose projects have no webhook
+	}
 	sec, err := s.box.Open(p.WebhookSecretEnc, aad(p.Slug, "webhook_secret"))
 	if err != nil {
 		return WebhookHook{}, fmt.Errorf("decrypt webhook secret: %w", err)

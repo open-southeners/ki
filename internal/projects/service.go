@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/open-southeners/ki-agent/internal/compose"
 	"github.com/open-southeners/ki-agent/internal/git"
 	"github.com/open-southeners/ki-agent/internal/runtime"
 	"github.com/open-southeners/ki-agent/internal/secret"
@@ -79,7 +80,16 @@ type Options struct {
 	// control-plane host), which projects cannot expose. Optional; it can also
 	// be set later with SetReservedHostnames.
 	ReservedHostnames func() []string
-	Logger            *slog.Logger
+	// ValidateCompose checks the content of a compose project's compose file
+	// before it is stored and returns the rejection, if any (a non-nil error
+	// is an infrastructure failure). Required for compose projects; the real
+	// one wraps compose.Validate with the agent's runner.
+	ValidateCompose func(ctx context.Context, project, content string) (*compose.ValidationError, error)
+	// OnComposeSet deploys a freshly stored compose version for
+	// projects.compose.set with deploy:true; its result is returned to the
+	// caller as `deploy`. It can also be set later with SetOnComposeSet.
+	OnComposeSet func(ctx context.Context, slug string, version int) (any, error)
+	Logger       *slog.Logger
 }
 
 // Service creates, inspects, updates and deletes projects.
@@ -104,6 +114,9 @@ type Service struct {
 
 	reserved   func() []string
 	onExposure []func()
+
+	validateCompose func(ctx context.Context, project, content string) (*compose.ValidationError, error)
+	onComposeSet    func(ctx context.Context, slug string, version int) (any, error)
 }
 
 type slugLock struct {
@@ -128,7 +141,10 @@ func New(opts Options) (*Service, error) {
 		log:       opts.Logger,
 		dataDir:   opts.DataDir,
 		reserved:  opts.ReservedHostnames,
-		locks:     make(map[string]*slugLock),
+
+		validateCompose: opts.ValidateCompose,
+		onComposeSet:    opts.OnComposeSet,
+		locks:           make(map[string]*slugLock),
 	}
 	if len(s.protocols) == 0 {
 		s.protocols = []string{"https", "ssh"}
@@ -169,18 +185,23 @@ type Webhook struct {
 
 // Project is the wire view of a project.
 type Project struct {
-	Slug          string  `json:"slug"`
-	RepoURL       string  `json:"repo_url"`
-	Trigger       Trigger `json:"trigger"`
-	DefaultBranch string  `json:"default_branch"`
-	ComposeFile   string  `json:"compose_file"`
-	Auth          Auth    `json:"auth"`
-	Webhook       Webhook `json:"webhook"`
-	Status        string  `json:"status"`
-	StatusDetail  string  `json:"status_detail"`
-	Commit        string  `json:"commit"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
+	Slug string `json:"slug"`
+	// Source is "git" or "compose". Compose projects have no repository: their
+	// repo_url, trigger, default_branch, compose_file, auth, webhook and commit
+	// are empty and ComposeVersion is the latest stored version.
+	Source         string  `json:"source"`
+	ComposeVersion int     `json:"compose_version,omitempty"`
+	RepoURL        string  `json:"repo_url"`
+	Trigger        Trigger `json:"trigger"`
+	DefaultBranch  string  `json:"default_branch"`
+	ComposeFile    string  `json:"compose_file"`
+	Auth           Auth    `json:"auth"`
+	Webhook        Webhook `json:"webhook"`
+	Status         string  `json:"status"`
+	StatusDetail   string  `json:"status_detail"`
+	Commit         string  `json:"commit"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
 	// Exposure is the effective exposure, sorted by service; omitted when empty.
 	Exposure         []Exposure `json:"exposure,omitempty"`
 	ExposureWarnings []string   `json:"exposure_warnings,omitempty"`
@@ -189,6 +210,7 @@ type Project struct {
 func view(p *store.Project) Project {
 	v := Project{
 		Slug:          p.Slug,
+		Source:        p.Source,
 		RepoURL:       p.RepoURL,
 		Trigger:       Trigger{Branch: p.Branch, TagPattern: p.TagPattern},
 		DefaultBranch: p.DefaultBranch,
@@ -200,6 +222,12 @@ func view(p *store.Project) Project {
 		Commit:        p.Commit,
 		CreatedAt:     p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:     p.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+	if v.Source == "" {
+		v.Source = SourceGit
+	}
+	if v.Source == SourceCompose {
+		v.Auth, v.Webhook = Auth{}, Webhook{}
 	}
 	switch p.AuthMethod {
 	case AuthSSHKey:
@@ -219,6 +247,12 @@ type CreateParams struct {
 	ComposeFile string `json:"compose_file"`
 	Token       string `json:"token"`
 	TokenUser   string `json:"token_user"`
+	// Compose is the compose file content of a compose project (instead of
+	// RepoURL); Slug is then required.
+	Compose string `json:"compose"`
+	// CreatedBy names who creates the project (version 1 of a compose
+	// project); filled in by the handler from the caller's principal.
+	CreatedBy string `json:"-"`
 }
 
 // UpdateParams are the arguments of projects.update.
@@ -440,6 +474,14 @@ func (s *Service) install(g *staged, slug string) error {
 // cloned first and nothing is persisted on failure; for ssh_key a deploy key
 // is generated and the project waits in pending_access.
 func (s *Service) Create(ctx context.Context, in CreateParams) (*Result, error) {
+	switch {
+	case in.RepoURL != "" && in.Compose != "":
+		return nil, invalidf("repo_url and compose are mutually exclusive")
+	case in.RepoURL == "" && in.Compose == "":
+		return nil, invalidf("repo_url or compose is required")
+	case in.Compose != "":
+		return s.createCompose(ctx, in)
+	}
 	u, err := git.ParseURL(in.RepoURL, s.protocols)
 	if err != nil {
 		return nil, err
@@ -586,6 +628,9 @@ func (s *Service) Verify(ctx context.Context, slug string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.Source == SourceCompose {
+		return nil, errNotGit
+	}
 	if err := s.verify(ctx, p); err != nil {
 		var ge *git.Error
 		if errors.As(err, &ge) {
@@ -673,6 +718,9 @@ func (s *Service) Update(ctx context.Context, in UpdateParams) (*Result, error) 
 	p, err := s.st.GetProject(ctx, in.Slug)
 	if err != nil {
 		return nil, err
+	}
+	if p.Source == SourceCompose {
+		return nil, errNotGit
 	}
 	if (in.Token != "" || in.TokenUser != "") && p.AuthMethod != AuthHTTPSToken {
 		return nil, invalidf("token and token_user apply only to https_token projects")

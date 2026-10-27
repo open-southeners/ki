@@ -235,6 +235,11 @@ func (s *Service) unexpose(ctx context.Context, slug, service string) (*Project,
 // decorate fills the exposure fields of v. Failures are logged and leave the
 // fields empty: exposure is advisory on reads.
 func (s *Service) decorate(ctx context.Context, v *Project) {
+	if v.Source == SourceCompose {
+		if n, err := s.st.LatestComposeVersion(ctx, v.Slug); err == nil {
+			v.ComposeVersion = n
+		}
+	}
 	es, err := s.st.ListExposures(ctx, v.Slug)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {

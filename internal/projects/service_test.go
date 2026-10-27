@@ -322,7 +322,7 @@ func TestCreateRejectsAndRollsBack(t *testing.T) {
 				wantInvalid(t, err)
 			})
 		}
-		for _, raw := range []string{"", "not a url", "ext::sh -c id", "https://user:pw@example.com/a/b.git", "/local/path"} {
+		for _, raw := range []string{"not a url", "ext::sh -c id", "https://user:pw@example.com/a/b.git", "/local/path"} {
 			_, err := e.svc.Create(ctx, CreateParams{RepoURL: raw})
 			if got := reason(t, err); got != git.ReasonInvalidURL {
 				t.Errorf("%q: reason = %s", raw, got)

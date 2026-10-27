@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/open-southeners/ki-agent/internal/auth"
+	"github.com/open-southeners/ki-agent/internal/compose"
 	"github.com/open-southeners/ki-agent/internal/git"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/runtime"
@@ -20,6 +22,10 @@ const (
 	MethodUpdate = "projects.update"
 	MethodVerify = "projects.verify"
 	MethodDelete = "projects.delete"
+
+	MethodComposeGet     = "projects.compose.get"
+	MethodComposeSet     = "projects.compose.set"
+	MethodComposeHistory = "projects.compose.history"
 
 	MethodExpose   = "projects.expose"
 	MethodUnexpose = "projects.unexpose"
@@ -51,6 +57,9 @@ func (h *Handlers) Register(r *rpc.Router) {
 	r.Handle(MethodUpdate, h.update)
 	r.Handle(MethodVerify, h.verify)
 	r.Handle(MethodDelete, h.delete)
+	r.Handle(MethodComposeGet, h.composeGet)
+	r.Handle(MethodComposeSet, h.composeSet)
+	r.Handle(MethodComposeHistory, h.composeHistory)
 	r.Handle(MethodExpose, h.expose)
 	r.Handle(MethodUnexpose, h.unexpose)
 	r.Handle(MethodServices, h.services)
@@ -68,10 +77,23 @@ func mapError(err error) error {
 		inv *InvalidError
 		ge  *git.Error
 		dc  *store.DomainConflictError
+		ve  *compose.ValidationError
 	)
 	switch {
 	case err == nil:
 		return nil
+	case errors.As(err, &ve):
+		reason := "compose_invalid"
+		if len(ve.Violations) > 0 {
+			reason = "policy_violation"
+		}
+		data := map[string]any{"reason": reason, "detail": ve.Reason}
+		if len(ve.Violations) > 0 {
+			data["violations"] = ve.Violations
+		}
+		return rpc.NewError(rpc.CodeInvalidParams, "invalid params: compose file rejected: "+ve.Error()).WithData(data)
+	case errors.Is(err, ErrVersionNotFound):
+		return rpc.NewError(rpc.CodeNotFound, "compose version not found")
 	case errors.As(err, &inv):
 		return rpc.NewError(rpc.CodeInvalidParams, "invalid params: "+inv.Msg)
 	case errors.As(err, &ge):
@@ -110,14 +132,21 @@ func decodeSlug(params json.RawMessage, in any, slug *string) error {
 	return nil
 }
 
-func (h *Handlers) create(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+// principalName is the authenticated caller's name, "" when unknown.
+func principalName(peer *rpc.Peer) string {
+	if peer == nil {
+		return ""
+	}
+	pr, _ := auth.PrincipalOf(peer)
+	return pr.Name
+}
+
+func (h *Handlers) create(ctx context.Context, peer *rpc.Peer, params json.RawMessage) (any, error) {
 	var in CreateParams
 	if err := rpc.DecodeParams(params, &in); err != nil {
 		return nil, err
 	}
-	if in.RepoURL == "" {
-		return nil, rpc.NewError(rpc.CodeInvalidParams, "invalid params: repo_url is required")
-	}
+	in.CreatedBy = principalName(peer)
 	res, err := h.svc.Create(ctx, in)
 	if err != nil {
 		return nil, mapError(err)
@@ -251,4 +280,57 @@ func (h *Handlers) unexpose(ctx context.Context, _ *rpc.Peer, params json.RawMes
 		return nil, mapError(err)
 	}
 	return p, nil
+}
+
+func (h *Handlers) composeGet(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+	var in struct {
+		Slug    string `json:"slug"`
+		Version int    `json:"version"`
+	}
+	if err := decodeSlug(params, &in, &in.Slug); err != nil {
+		return nil, err
+	}
+	v, err := h.svc.ComposeGet(ctx, in.Slug, in.Version)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return v, nil
+}
+
+func (h *Handlers) composeSet(ctx context.Context, peer *rpc.Peer, params json.RawMessage) (any, error) {
+	var in struct {
+		Slug    string `json:"slug"`
+		Compose string `json:"compose"`
+		Note    string `json:"note"`
+		Deploy  bool   `json:"deploy"`
+	}
+	if err := decodeSlug(params, &in, &in.Slug); err != nil {
+		return nil, err
+	}
+	if in.Compose == "" {
+		return nil, rpc.NewError(rpc.CodeInvalidParams, "invalid params: compose is required")
+	}
+	if peer != nil && rpc.TransportOf(peer) == rpc.TransportUnix {
+		ctx = context.WithValue(ctx, viaCLIKey{}, true)
+	}
+	res, err := h.svc.ComposeSetAndDeploy(ctx, in.Slug, in.Compose, in.Note, principalName(peer), in.Deploy)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return res, nil
+}
+
+func (h *Handlers) composeHistory(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {
+	var in struct {
+		Slug  string `json:"slug"`
+		Limit int    `json:"limit"`
+	}
+	if err := decodeSlug(params, &in, &in.Slug); err != nil {
+		return nil, err
+	}
+	hs, err := h.svc.ComposeHistory(ctx, in.Slug, in.Limit)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return hs, nil
 }
