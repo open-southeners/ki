@@ -428,3 +428,12 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   set on the project, and the file cannot be stored.
 - **Fix:** validate with the project's env names (values sealed, e.g. placeholders) or skip
   required-variable errors during validation; the deploy itself resolves the real values.
+
+## Panel shows front-mode ports and a misplaced hint (M6)
+
+- **Where:** `web/src/components/ops/EdgeCard.tsx` (Overview edge card), `web/src/components/ops/ProjectsTable.tsx` (empty state).
+- **What:** in behind mode the Overview edge card still shows "Ports 80 / 443" instead of the behind
+  listen address; the empty projects table on the Overview says "use the New project button above",
+  but that button only exists on the Projects page.
+- **Fix:** show `mode` and `listen` from `edge.status` (as the Edge page does); point the hint at the
+  Projects page (or render the button there too).
