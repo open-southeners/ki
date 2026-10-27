@@ -568,14 +568,13 @@
     {
       "name": "projects.create",
       "x-role": "admin",
-      "summary": "Register a Git repository as a project.",
-      "description": "Auth is inferred: token given means https_token (the URL must be https); an ssh URL means ssh_key (the agent generates a deploy key); an https URL without a token means none. For none and https_token the repository is probed and cloned before anything is stored: any failure leaves nothing behind. For ssh_key the project is stored as pending_access without cloning and the public key is returned; add it as a read-only deploy key, then call projects.verify. The webhook secret is returned only here and on rotation.",
+      "summary": "Register a Git repository, or a stored Compose file, as a project.",
+      "description": "Pass repo_url for a git project or compose for a compose project (mutually exclusive; one of them is required). A compose project has no repository: the content is validated (compose_invalid or policy_violation, with build sections rejected as build_not_allowed, are reported as InvalidParams data) and stored as version 1, the project is ready at once, no webhook secret is returned and its webhook is not reachable; slug is required. Deploy it with deploys.trigger and change it with projects.compose.set. For a git project, auth is inferred: token given means https_token (the URL must be https); an ssh URL means ssh_key (the agent generates a deploy key); an https URL without a token means none. For none and https_token the repository is probed and cloned before anything is stored: any failure leaves nothing behind. For ssh_key the project is stored as pending_access without cloning and the public key is returned; add it as a read-only deploy key, then call projects.verify. The webhook secret is returned only here and on rotation.",
       "paramStructure": "by-name",
       "params": [
         {
           "name": "repo_url",
-          "description": "Repository URL: https://host/path, ssh://[user@]host[:port]/path or user@host:path. Immutable.",
-          "required": true,
+          "description": "Repository URL: https://host/path, ssh://[user@]host[:port]/path or user@host:path. Immutable. Required unless compose is given.",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -583,7 +582,7 @@
         },
         {
           "name": "slug",
-          "description": "Lowercase letters, digits and dashes, starting with a letter or digit, at most 63 characters. Defaults to the repository name. Immutable.",
+          "description": "Lowercase letters, digits and dashes, starting with a letter or digit, at most 63 characters. Defaults to the repository name; required with compose. Immutable.",
           "schema": {
             "type": "string",
             "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
@@ -628,6 +627,14 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        {
+          "name": "compose",
+          "description": "Compose file content of a compose project, at most 256 KiB. Only prebuilt images are allowed: no build, include, extends or env_file paths. Mutually exclusive with repo_url and the git-only parameters.",
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       ],
       "result": {
@@ -635,8 +642,7 @@
         "schema": {
           "type": "object",
           "required": [
-            "project",
-            "webhook_secret"
+            "project"
           ],
           "properties": {
             "project": {
@@ -644,7 +650,7 @@
             },
             "webhook_secret": {
               "type": "string",
-              "description": "Shared secret for verifying webhook deliveries. Shown only once."
+              "description": "Shared secret for verifying webhook deliveries. Shown only once. Absent for compose projects."
             }
           }
         }
@@ -830,7 +836,7 @@
       "name": "projects.verify",
       "x-role": "admin",
       "summary": "Check repository access and bring the checkout up to date.",
-      "description": "Probes the repository with the stored credentials, resolves the default branch, clones the checkout if there is none (otherwise fetches and checks out the trigger branch head), and locates the compose file. On success the project becomes ready. On failure the status is unchanged, status_detail records the reason, and RepositoryError is returned.",
+      "description": "Git projects only; a compose project is rejected as InvalidParams (not a git project). Probes the repository with the stored credentials, resolves the default branch, clones the checkout if there is none (otherwise fetches and checks out the trigger branch head), and locates the compose file. On success the project becomes ready. On failure the status is unchanged, status_detail records the reason, and RepositoryError is returned.",
       "paramStructure": "by-name",
       "params": [
         {
@@ -906,6 +912,196 @@
         },
         {
           "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "projects.compose.get",
+      "x-role": "admin",
+      "summary": "Return the content of a compose project's stored Compose file.",
+      "description": "Only for compose projects (source compose); a git project is rejected as InvalidParams (not a compose project).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "version",
+          "description": "Version number. 0 or absent: the latest.",
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "result": {
+        "name": "version",
+        "schema": {
+          "$ref": "#/components/schemas/ComposeVersion"
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        }
+      ]
+    },
+    {
+      "name": "projects.compose.set",
+      "x-role": "admin",
+      "summary": "Store a new version of a compose project's Compose file, optionally deploying it.",
+      "description": "The content is validated like projects.create (compose_invalid or policy_violation, including build_not_allowed, are reported as InvalidParams data) and stored as the next version number; nothing is stored on rejection. With deploy true a deploy of the new version is queued (as with deploys.trigger, ref compose@v<N>) and returned; if queuing fails the version stays stored and the error is returned. Rolling back is deploys.rollback.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "compose",
+          "description": "Compose file content, at most 256 KiB.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "note",
+          "description": "Free-text note kept with the version.",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "deploy",
+          "description": "Queue a deploy of the new version. Default false.",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "stored",
+        "schema": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "description": "The new version number."
+            },
+            "deploy": {
+              "$ref": "#/components/schemas/Deploy",
+              "description": "The queued deploy; present only when deploy was true."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
+        },
+        {
+          "$ref": "#/components/errors/DeployError"
+        },
+        {
+          "$ref": "#/components/errors/RuntimeUnavailable"
+        }
+      ]
+    },
+    {
+      "name": "projects.compose.history",
+      "x-role": "viewer",
+      "summary": "List the stored versions of a compose project's Compose file, newest first.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "slug",
+          "description": "Project slug.",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "name": "limit",
+          "description": "Return at most this many versions. 0 or absent: all.",
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ],
+      "result": {
+        "name": "versions",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "version",
+              "created_at",
+              "created_by",
+              "deployed"
+            ],
+            "properties": {
+              "version": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "deployed": {
+                "type": "boolean",
+                "description": "True when a succeeded deploy ran this version."
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "$ref": "#/components/errors/HandshakeRequired"
+        },
+        {
+          "$ref": "#/components/errors/InvalidParams"
+        },
+        {
+          "$ref": "#/components/errors/NotFound"
         }
       ]
     },
@@ -1307,7 +1503,7 @@
         },
         {
           "name": "ref",
-          "description": "What to deploy: refs/heads/<branch>, refs/tags/<tag>, a bare branch or tag name, or a full 40 or 64 hex digit commit sha. Absent: the head of the trigger branch, or the newest tag matching the trigger's tag_pattern. Only refs matching the project's trigger are allowed (the trigger branch, or tags matching the pattern; a sha must be reachable from the branch head or be pointed at by a matching tag).",
+          "description": "What to deploy: refs/heads/<branch>, refs/tags/<tag>, a bare branch or tag name, or a full 40 or 64 hex digit commit sha. Absent: the head of the trigger branch, or the newest tag matching the trigger's tag_pattern. Only refs matching the project's trigger are allowed (the trigger branch, or tags matching the pattern; a sha must be reachable from the branch head or be pointed at by a matching tag). For a compose project the ref is a stored version: compose@v<N>, v<N> or <N>; absent means the latest version.",
           "schema": {
             "type": "string",
             "minLength": 1
@@ -2990,6 +3186,34 @@
           }
         }
       },
+      "ComposeVersion": {
+        "type": "object",
+        "description": "One stored version of a compose project's Compose file.",
+        "required": [
+          "version",
+          "content",
+          "created_at",
+          "created_by"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
       "PolicyViolations": {
         "type": "object",
         "description": "Data of a PolicyViolation error.",
@@ -3064,6 +3288,7 @@
         "type": "object",
         "required": [
           "slug",
+          "source",
           "repo_url",
           "trigger",
           "default_branch",
@@ -3079,6 +3304,18 @@
         "properties": {
           "slug": {
             "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "git",
+              "compose"
+            ],
+            "description": "git: deployed from a repository. compose: deployed from a stored Compose file of prebuilt images; repo_url, trigger, default_branch, compose_file, auth, webhook and commit are then empty."
+          },
+          "compose_version": {
+            "type": "integer",
+            "description": "Latest stored compose version; present only for compose projects."
           },
           "repo_url": {
             "type": "string"
@@ -3318,11 +3555,11 @@
           },
           "ref": {
             "type": "string",
-            "description": "The requested ref, normalized (refs/heads/..., refs/tags/... or a sha)."
+            "description": "The requested ref, normalized (refs/heads/..., refs/tags/... or a sha; compose@v<N> for a compose project)."
           },
           "commit": {
             "type": "string",
-            "description": "Resolved commit sha; empty until the checkout stage has run."
+            "description": "Resolved commit sha; empty until the checkout stage has run, and always empty for compose projects."
           },
           "source": {
             "type": "string",
@@ -3348,6 +3585,7 @@
             "type": "string",
             "enum": [
               "fetch",
+              "prepare",
               "config",
               "policy",
               "pull",
@@ -3355,7 +3593,7 @@
               "up",
               "health"
             ],
-            "description": "Last pipeline stage reached; empty while queued."
+            "description": "Last pipeline stage reached; empty while queued. prepare (compose projects) writes the stored version into the project directory in place of fetch."
           },
           "rollback_of": {
             "type": "integer",
@@ -3796,7 +4034,7 @@
       "ParseError": { "code": -32700, "message": "Parse error" },
       "InvalidRequest": { "code": -32600, "message": "Invalid request" },
       "MethodNotFound": { "code": -32601, "message": "Method not found" },
-      "InvalidParams": { "code": -32602, "message": "Invalid params" },
+      "InvalidParams": { "code": -32602, "message": "Invalid params", "data": "For a rejected Compose file (projects.create, projects.compose.set): object {reason, detail, violations?}; reason is compose_invalid or policy_violation, and violations ([{service, rule, detail}], see the PolicyViolations schema) is present for policy_violation, for example rule build_not_allowed." },
       "InternalError": { "code": -32603, "message": "Internal error" },
       "Unauthorized": { "code": -32001, "message": "Unauthorized", "data": "-32001 is returned for local-only methods (enrollment.*) over any transport other than the Unix socket, and as \"forbidden: requires <role>\" when the caller's role is below the method's x-role." },
       "HandshakeRequired": { "code": -32002, "message": "Handshake required: call agent.hello first" },

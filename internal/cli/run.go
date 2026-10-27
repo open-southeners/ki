@@ -31,6 +31,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/git"
 	"github.com/open-southeners/ki-agent/internal/monitor"
 	"github.com/open-southeners/ki-agent/internal/panel"
+	"github.com/open-southeners/ki-agent/internal/policy"
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/runtime/docker"
@@ -130,13 +131,6 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	if err != nil {
 		return err
 	}
-	projSvc, err := projects.New(projects.Options{
-		Store: db, Secret: box, Git: gitClient, Runtime: rt, DataDir: cfg.DataDir, Logger: logger,
-	})
-	if err != nil {
-		return err
-	}
-
 	composeRunner := &compose.Runner{
 		CLI:        cfg.Docker.CLI,
 		DockerHost: cfg.Docker.Host,
@@ -147,6 +141,17 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	if err := composeRunner.PrepareDockerConfig(); err != nil {
 		return fmt.Errorf("docker config dir: %w", err)
+	}
+	projSvc, err := projects.New(projects.Options{
+		Store: db, Secret: box, Git: gitClient, Runtime: rt, DataDir: cfg.DataDir, Logger: logger,
+		// Same policy as the deploy pipeline (default capabilities); Validate
+		// forces NoBuild on.
+		ValidateCompose: func(ctx context.Context, project, content string) (*compose.ValidationError, error) {
+			return compose.Validate(ctx, composeRunner, filepath.Join(cfg.DataDir, "tmp"), content, project, policy.Options{})
+		},
+	})
+	if err != nil {
+		return err
 	}
 	// The edge routes to the real webhook listener, so the port it targets
 	// follows the effective listen address.
@@ -195,6 +200,19 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	defer deployMgr.Close()
 	projSvc.OnDelete(deployMgr.Cancel)
+	projSvc.SetOnComposeSet(func(ctx context.Context, slug string, version int) (any, error) {
+		source := deploys.SourceAPI
+		if projects.ViaCLI(ctx) {
+			source = deploys.SourceCLI
+		}
+		d, err := deployMgr.Trigger(ctx, deploys.TriggerRequest{
+			Project: slug, Ref: fmt.Sprintf("compose@v%d", version), Source: source,
+		})
+		if err != nil {
+			return nil, deploys.MapError(err)
+		}
+		return d, nil
+	})
 
 	tlsCfg, err := cfg.ControlPlane.TLSConfig()
 	if err != nil {
