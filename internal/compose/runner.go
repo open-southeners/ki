@@ -92,7 +92,7 @@ func (r *Runner) Build(ctx context.Context, file, project string, out func(strea
 // Up runs `compose up -d --remove-orphans` for the labelled model file,
 // streaming output like [Runner.Build].
 func (r *Runner) Up(ctx context.Context, file, project string, out func(stream, line string)) error {
-	return r.stream(ctx, "up", file, project, out, "up", "-d", "--remove-orphans")
+	return r.stream(ctx, "up", file, project, out, "up", "-d", "--no-build", "--remove-orphans")
 }
 
 // Pull runs `compose pull --ignore-buildable` for the labelled model file,

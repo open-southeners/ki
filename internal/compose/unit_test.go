@@ -450,7 +450,7 @@ func TestBuildAndUpStreamLines(t *testing.T) {
 		args string
 	}{
 		{"build", func(o func(string, string)) error { return r.Build(context.Background(), file, "p", o) }, " -p p build"},
-		{"up", func(o func(string, string)) error { return r.Up(context.Background(), file, "p", o) }, " -p p up -d --remove-orphans"},
+		{"up", func(o func(string, string)) error { return r.Up(context.Background(), file, "p", o) }, " -p p up -d --no-build --remove-orphans"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
