@@ -75,7 +75,7 @@ export function ProjectsTable({ compact = false }: { compact?: boolean }) {
   if (rows.length === 0)
     return (
       <EmptyState title="No projects yet">
-        Create one with <Mono>ki-agent projects create &lt;repo-url&gt;</Mono> and it shows up here.
+        Admins can use the New project button above; from a terminal, run <Mono>ki-agent projects create</Mono>.
       </EmptyState>
     );
 

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams, useParams } from "react-router-dom";
+import { UpdateImageButton } from "@/components/admin/UpdateImage";
 import { PageHeader } from "@/components/page";
 import { CopyButton } from "@/components/copy-button";
 import { ErrorState, Mono, StatusBadge } from "@/components/ops/common";
@@ -99,7 +100,28 @@ export default function Project() {
 
   return (
     <>
-      <PageHeader eyebrow="Project" title={<span className="font-mono">{slug}</span>} />
+      <PageHeader
+        eyebrow="Project"
+        title={<span className="font-mono">{slug}</span>}
+        actions={
+          showCompose ? (
+            <UpdateImageButton
+              slug={slug}
+              ready={info.data?.status === "ready"}
+              onDeploy={() =>
+                setParams(
+                  (p) => {
+                    const n = new URLSearchParams(p);
+                    n.set("tab", "deploys");
+                    return n;
+                  },
+                  { replace: true },
+                )
+              }
+            />
+          ) : undefined
+        }
+      />
       <ProjectSummary slug={slug} />
       <Tabs
         value={tab}

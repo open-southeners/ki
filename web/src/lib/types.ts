@@ -283,7 +283,20 @@ export interface ComposeInvalidData {
   violations?: PolicyViolation[];
 }
 
-export interface ProjectCreateParams {
+export interface ImageSpec {
+  image: string;
+  service?: string;
+  port?: number;
+  domains?: string[];
+  path?: string;
+  /** `name:/container/path[:ro]` entries; named volumes only. */
+  volumes?: string[];
+  env?: Record<string, string>;
+}
+
+export type ProjectCreateParams = GitProjectCreateParams | { slug: string; compose: string } | { slug: string; image: ImageSpec };
+
+export interface GitProjectCreateParams {
   repo_url: string;
   slug?: string;
   branch?: string;
@@ -550,7 +563,7 @@ export interface MethodMap {
     result: { subscription: SubscriptionID };
   };
   "containers.logs.unsubscribe": { params: { subscription: SubscriptionID }; result: Record<string, never> };
-  "projects.create": { params: ProjectCreateParams; result: { project: Project; webhook_secret: string } };
+  "projects.create": { params: ProjectCreateParams; result: { project: Project; webhook_secret?: string } };
   "projects.get": { params: { slug: string }; result: Project };
   "projects.list": { params: undefined; result: Project[] };
   "projects.update": { params: ProjectUpdateParams; result: { project: Project; webhook_secret?: string } };
@@ -571,6 +584,10 @@ export interface MethodMap {
   "projects.compose.set": {
     params: { slug: string; compose: string; note?: string; deploy?: boolean };
     result: { version: number; deploy?: Deploy };
+  };
+  "projects.image.set": {
+    params: { slug: string; image?: string; tag?: string; service?: string; note?: string; deploy?: boolean };
+    result: { version: number; image: string; deploy?: Deploy };
   };
   "projects.compose.history": { params: { slug: string; limit?: number }; result: ComposeHistoryEntry[] };
   "projects.unexpose": { params: { slug: string; service: string }; result: Project };

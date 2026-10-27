@@ -222,11 +222,19 @@ function NewVersion({
   );
 }
 
-function Rejection({ detail, violations }: { detail: string; violations: PolicyViolation[] }) {
+export function Rejection({
+  detail,
+  violations,
+  title = "The compose file was rejected",
+}: {
+  detail: string;
+  violations: PolicyViolation[];
+  title?: string;
+}) {
   return (
     <Alert variant="destructive" role="alert">
       <AlertDescription>
-        <p className="font-medium">The compose file was rejected</p>
+        <p className="font-medium">{title}</p>
         {detail && <p className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">{detail}</p>}
         {violations.length > 0 && (
           <div className="mt-2 overflow-hidden rounded-md border bg-card text-card-foreground">
