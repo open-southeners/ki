@@ -429,3 +429,48 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 - **Fix:** validate with the project's env names (values sealed, e.g. placeholders) or skip
   required-variable errors during validation; the deploy itself resolves the real values.
 
+
+## The panel only reloads after an update while the Updates page is open (M7)
+
+- **Where:** `web/src/pages/admin/Updates.tsx` (the update watcher).
+- **What:** the "reconnect, compare versions, reload" logic lives in the Updates page. If an admin
+  navigates away mid-update, the tab keeps the old panel assets until a manual reload.
+- **Fix:** lift the watcher into `AppShell` (or the RPC provider) so any page reloads when the
+  agent's version changes after a reconnect.
+
+## "Update now" confirm button renders as destructive (M7)
+
+- **Where:** `web/src/components/admin/confirm.tsx`.
+- **What:** `ConfirmDialog` always uses the `destructive` button variant, so a routine update looks
+  like a dangerous action.
+- **Fix:** add a `variant` prop to `ConfirmDialog` and pass the default variant from the Updates page.
+
+## Audit entries for `updates.apply` have no target (M7)
+
+- **Where:** `internal/accounts/audit.go` (`targetKeys`, around line 68).
+- **What:** `AuditMiddleware` audits `updates.check` and `updates.apply` automatically, but the
+  target column stays empty because `version` is not one of the recognised parameter keys.
+- **Fix:** add `"version"` to `targetKeys`.
+
+## The installer test does not cover the update helper units (M7)
+
+- **Where:** `packaging/test/install-test.sh` (lines ~48 and ~149).
+- **What:** the fake release archives only contain `ki-agent.service`, so installing
+  `ki-agent-update.service`/`.path` and `systemctl enable --now ki-agent-update.path` are untested.
+- **Fix:** add both units to the fake archives and assert they are installed and enabled.
+
+## `install.sh` only warns when an archive lacks the update units (M7)
+
+- **Where:** `install.sh` (update-unit install step).
+- **What:** kept lenient so older test archives still install; real releases always ship the units.
+- **Fix:** make them required like the other archive files once the installer test archives ship them.
+
+## Panel-triggered updates assume the default data directory (M7)
+
+- **Where:** `packaging/systemd/ki-agent-update.path` (`PathExists=/var/lib/ki-agent/update/request`)
+  and `ki-agent-update.service` (`ReadWritePaths=/var/lib/ki-agent`).
+- **What:** with a non-default `data_dir`, the agent writes the request elsewhere and the helper never
+  runs; after 10 minutes the panel shows "the update helper did not run". `sudo ki-agent update` is
+  unaffected.
+- **Fix:** have `install.sh` write a drop-in for both units from the configured `data_dir`, or document
+  the limitation in the README's Updating section.
