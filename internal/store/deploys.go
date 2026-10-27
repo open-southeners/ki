@@ -35,6 +35,9 @@ type Deploy struct {
 	// RollbackOf is the id of the deploy this one re-deploys, 0 if it is not
 	// a rollback. Set on CreateDeploy only.
 	RollbackOf int64
+	// ComposeVersion is the compose version a compose project's deploy runs,
+	// 0 for none (stored NULL). Set on CreateDeploy only.
+	ComposeVersion int
 	// ErrorReason and ErrorDetail describe a failure; ErrorData is opaque JSON
 	// ("" when none) owned by the caller.
 	ErrorReason, ErrorDetail, ErrorData string
@@ -154,7 +157,7 @@ func (s *Store) ListEnv(ctx context.Context, slug string) ([]EnvVar, error) {
 
 const deployColumns = `d.id, d.project_id, p.slug, d.ref, d.commit_sha, d.source, d.status, d.stage,
 	d.error_reason, d.error_detail, d.error_data, d.created_at, d.started_at, d.finished_at,
-	d.rollback_of`
+	d.rollback_of, d.compose_version`
 
 const deployFrom = ` FROM deploys d JOIN projects p ON p.id = d.project_id`
 
@@ -188,13 +191,14 @@ func scanDeploy(sc scanner) (*Deploy, error) {
 	var d Deploy
 	var created string
 	var started, finished sql.NullString
-	var rollbackOf sql.NullInt64
+	var rollbackOf, composeVersion sql.NullInt64
 	err := sc.Scan(&d.ID, &d.ProjectID, &d.Project, &d.Ref, &d.Commit, &d.Source, &d.Status,
-		&d.Stage, &d.ErrorReason, &d.ErrorDetail, &d.ErrorData, &created, &started, &finished, &rollbackOf)
+		&d.Stage, &d.ErrorReason, &d.ErrorDetail, &d.ErrorData, &created, &started, &finished, &rollbackOf, &composeVersion)
 	if err != nil {
 		return nil, err
 	}
 	d.RollbackOf = rollbackOf.Int64
+	d.ComposeVersion = int(composeVersion.Int64)
 	if d.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
 		return nil, fmt.Errorf("store: parse created_at: %w", err)
 	}
@@ -217,10 +221,10 @@ func (s *Store) CreateDeploy(ctx context.Context, d *Deploy) error {
 	}
 	t := now()
 	res, err := s.db.ExecContext(ctx, `INSERT INTO deploys (project_id, ref, commit_sha, source,
-		status, stage, error_reason, error_detail, error_data, created_at, started_at, finished_at, rollback_of)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		status, stage, error_reason, error_detail, error_data, created_at, started_at, finished_at, rollback_of, compose_version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		pid, d.Ref, d.Commit, d.Source, d.Status, d.Stage, d.ErrorReason, d.ErrorDetail,
-		d.ErrorData, stamp(t), nullStamp(d.StartedAt), nullStamp(d.FinishedAt), nullID(d.RollbackOf))
+		d.ErrorData, stamp(t), nullStamp(d.StartedAt), nullStamp(d.FinishedAt), nullID(d.RollbackOf), nullID(int64(d.ComposeVersion)))
 	if err != nil {
 		if isForeignKey(err) {
 			return ErrNotFound // project deleted since the lookup

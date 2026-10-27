@@ -151,6 +151,21 @@ var migrations = []string{
 		result         TEXT NOT NULL DEFAULT ''
 	)`,
 	`ALTER TABLE deploys ADD COLUMN rollback_of INTEGER`,
+	// Compose-only projects. repo_url and webhook_id stay NOT NULL: compose
+	// projects store repo_url '' and a random, never-published webhook id, which
+	// avoids rebuilding the projects table. Existing rows keep the default source.
+	`ALTER TABLE projects ADD COLUMN source TEXT NOT NULL DEFAULT 'git';
+	ALTER TABLE deploys ADD COLUMN compose_version INTEGER;
+	CREATE TABLE project_compose (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		version    INTEGER NOT NULL,
+		content    TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		created_by TEXT NOT NULL DEFAULT '',
+		note       TEXT NOT NULL DEFAULT '',
+		UNIQUE (project_id, version)
+	)`,
 }
 
 // Project is a persisted project row.
@@ -169,6 +184,11 @@ type Project struct {
 	WebhookSecretEnc        []byte
 	Status, StatusDetail    string
 	Commit                  string
+	// Source is "git" or "compose" ("" is stored as "git"; immutable after
+	// creation). Compose projects store RepoURL "" and a random WebhookID that
+	// is never published: callers must treat webhook lookups of compose
+	// projects as unknown.
+	Source string
 	// CreatedAt and UpdatedAt are UTC and set by the store.
 	CreatedAt, UpdatedAt time.Time
 }
@@ -247,7 +267,7 @@ func (s *Store) applyMigration(ctx context.Context, i int) error {
 
 const projectColumns = `id, slug, repo_url, branch, tag_pattern, default_branch, compose_file,
 	auth_method, public_key, private_key_enc, token_enc, token_user, webhook_id,
-	webhook_secret_enc, status, status_detail, commit_sha, created_at, updated_at`
+	webhook_secret_enc, status, status_detail, commit_sha, created_at, updated_at, source`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -259,7 +279,7 @@ func scanProject(sc scanner) (*Project, error) {
 	err := sc.Scan(&p.ID, &p.Slug, &p.RepoURL, &p.Branch, &p.TagPattern, &p.DefaultBranch,
 		&p.ComposeFile, &p.AuthMethod, &p.PublicKey, &p.PrivateKeyEnc, &p.TokenEnc,
 		&p.TokenUser, &p.WebhookID, &p.WebhookSecretEnc, &p.Status, &p.StatusDetail,
-		&p.Commit, &created, &updated)
+		&p.Commit, &created, &updated, &p.Source)
 	if err != nil {
 		return nil, err
 	}
@@ -300,14 +320,18 @@ func mapErr(err error) error {
 // when the slug or webhook id is already taken.
 func (s *Store) CreateProject(ctx context.Context, p *Project) error {
 	t := now()
+	source := p.Source
+	if source == "" {
+		source = "git"
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO projects (
 		slug, repo_url, branch, tag_pattern, default_branch, compose_file, auth_method,
 		public_key, private_key_enc, token_enc, token_user, webhook_id, webhook_secret_enc,
-		status, status_detail, commit_sha, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		status, status_detail, commit_sha, created_at, updated_at, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Slug, p.RepoURL, p.Branch, p.TagPattern, p.DefaultBranch, p.ComposeFile, p.AuthMethod,
 		p.PublicKey, blob(p.PrivateKeyEnc), blob(p.TokenEnc), p.TokenUser, p.WebhookID,
-		blob(p.WebhookSecretEnc), p.Status, p.StatusDetail, p.Commit, stamp(t), stamp(t))
+		blob(p.WebhookSecretEnc), p.Status, p.StatusDetail, p.Commit, stamp(t), stamp(t), source)
 	if err != nil {
 		if err = mapErr(err); err == ErrExists {
 			return err
@@ -318,7 +342,7 @@ func (s *Store) CreateProject(ctx context.Context, p *Project) error {
 	if err != nil {
 		return fmt.Errorf("store: create project: %w", err)
 	}
-	p.ID, p.CreatedAt, p.UpdatedAt = id, t, t
+	p.ID, p.CreatedAt, p.UpdatedAt, p.Source = id, t, t, source
 	return nil
 }
 

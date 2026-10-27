@@ -20,7 +20,7 @@ func TestMigrationFromV1(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Roll the database back to a v1 schema.
-	for _, q := range []string{`DROP TABLE audit_log`, `DROP TABLE api_tokens`, `DROP TABLE sessions`, `DROP TABLE setup_tokens`, `DROP TABLE users`, `DROP TABLE exposure_domains`, `DROP TABLE project_exposures`, `DROP TABLE deploy_logs`, `DROP TABLE deploys`, `DROP TABLE project_env`, `PRAGMA user_version = 1`} {
+	for _, q := range []string{`DROP TABLE project_compose`, `ALTER TABLE projects DROP COLUMN source`, `DROP TABLE audit_log`, `DROP TABLE api_tokens`, `DROP TABLE sessions`, `DROP TABLE setup_tokens`, `DROP TABLE users`, `DROP TABLE exposure_domains`, `DROP TABLE project_exposures`, `DROP TABLE deploy_logs`, `DROP TABLE deploys`, `DROP TABLE project_env`, `PRAGMA user_version = 1`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}
@@ -35,8 +35,8 @@ func TestMigrationFromV1(t *testing.T) {
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != len(migrations) || v < 3 {
 		t.Fatalf("user_version %d err %v", v, err)
 	}
-	if _, err := s.GetProject(ctx, "app"); err != nil {
-		t.Fatal(err)
+	if p, err := s.GetProject(ctx, "app"); err != nil || p.Source != "git" {
+		t.Fatalf("project %+v err %v", p, err)
 	}
 	if err := s.CreateDeploy(ctx, &Deploy{Project: "app", Status: "queued"}); err != nil {
 		t.Fatal(err)
