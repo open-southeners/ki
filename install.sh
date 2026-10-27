@@ -15,7 +15,7 @@
 set -eu
 
 DEFAULT_BASE_URL="https://github.com/open-southeners/ki/releases"
-SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki/\.github/workflows/release\.yml@refs/tags/v'
+SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/(ki|ki-agent)/\.github/workflows/release\.yml@refs/tags/v'
 SIGN_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 # Current releases ship one binary, ki; /usr/local/bin/ki-agent is a symlink to
@@ -337,6 +337,9 @@ main() {
 		die "--enroll needs the service running; drop --no-start"
 	fi
 
+	if [ "$(uname -s)" = "Darwin" ]; then
+		die "this installs the agent for Linux servers; on macOS install the ki CLI with: brew install open-southeners/tap/ki (or download ki_darwin_<arch>.tar.gz from the releases page)"
+	fi
 	[ "$(uname -s)" = "Linux" ] || die "only Linux is supported"
 	if [ "$(id -u)" -ne 0 ]; then
 		die "must run as root; re-run with sudo, e.g. curl -fsSL <url>/install.sh | sudo sh -s -- [options]"

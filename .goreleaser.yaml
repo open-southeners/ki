@@ -39,6 +39,19 @@ builds:
       - -trimpath
     ldflags: *ldflags
 
+  # The same CLI for laptops (`ki login` and the Kiarga commands); `ki agent
+  # run` refuses to start off Linux.
+  - id: ki-laptop
+    main: ./cmd/ki
+    binary: ki
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags: *ldflags
+
 # No version in the archive name, so releases/latest/download/<name> works.
 archives:
   - id: ki-agent
@@ -57,6 +70,43 @@ archives:
       - src: packaging/config.example.yaml
         dst: config.example.yaml
 
+  # Laptop CLI: ki_<os>_<arch>.tar.gz (zip on Windows).
+  - id: ki-laptop
+    ids: [ki-laptop]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "ki_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+# Homebrew cask for macOS, published to open-southeners/homebrew-tap. The
+# upload is skipped when HOMEBREW_TAP_GITHUB_TOKEN is not set, so a release
+# never fails for lack of the tap token.
+homebrew_casks:
+  - name: ki
+    ids: [ki-laptop]
+    description: Command-line client for Kiarga and the ki agent
+    homepage: https://github.com/open-southeners/ki
+    license: Apache-2.0
+    binaries: [ki]
+    directory: Casks
+    repository:
+      owner: open-southeners
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    skip_upload: '{{ not (isEnvSet "HOMEBREW_TAP_GITHUB_TOKEN") }}'
+    # The binary is not notarized; clear the quarantine flag so macOS runs it.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr",
+                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/ki"]
+          end
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256
@@ -71,7 +121,7 @@ release:
   prerelease: auto
   github:
     owner: open-southeners
-    name: ki-agent
+    name: ki
   extra_files:
     - glob: ./install.sh
 

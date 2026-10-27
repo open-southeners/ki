@@ -83,3 +83,6 @@ jobs:
           KI_ENROLL_URL: ${{ vars.KI_ENROLL_URL }}
           # Private ed25519 seed the updater's release signature is made with.
           KI_RELEASE_SIGNING_KEY: ${{ secrets.KI_RELEASE_SIGNING_KEY }}
+          # Publishes the Homebrew cask to open-southeners/homebrew-tap; the
+          # cask upload is skipped when the secret is not set.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

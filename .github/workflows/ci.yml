@@ -3,7 +3,8 @@
 #
 # Jobs:
 #   - fmt:   `gofmt -l .` must report nothing.
-#   - vet:   `go vet ./...`.
+#   - vet:   `go vet ./...`, also for darwin and windows, plus a CGO-free
+#            cross-compile of the `ki` CLI for macOS and Windows.
 #   - test:  `go test ./... -race -count=1`.
 #   - web:   type check, tests and production build of the panel (web/).
 name: CI
@@ -48,6 +49,18 @@ jobs:
           go-version-file: go.mod
       - name: go vet
         run: go vet ./...
+      - name: go vet (darwin, windows)
+        run: |
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
+      - name: cross-compile ki
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o /dev/null ./cmd/ki
+          GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/ki
+          GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/ki
+          GOOS=windows GOARCH=arm64 go build -o /dev/null ./cmd/ki
 
   test:
     runs-on: ubuntu-latest
