@@ -77,8 +77,8 @@ The same `ki` binary is published for laptops. On macOS:
 brew install open-southeners/tap/ki
 ```
 
-Or download `ki_<os>_<arch>` (`ki_darwin_arm64.tar.gz`, `ki_windows_amd64.zip`,
-and so on) from the [releases page](https://github.com/open-southeners/ki/releases)
+Or download `ki_<version>_<os>_<arch>` (`ki_1.1.0_darwin_arm64.tar.gz`,
+`ki_1.1.0_windows_amd64.zip`, and so on) from the [releases page](https://github.com/open-southeners/ki/releases)
 and put `ki` on your `PATH`. The `ki agent` commands are for the server and need
 Linux; `ki login` and the Kiarga commands are coming.
 

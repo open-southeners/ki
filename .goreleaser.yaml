@@ -77,36 +77,13 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-    name_template: "ki_{{ .Os }}_{{ .Arch }}"
+    name_template: "ki_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
       - README.md
 
-# Homebrew cask for macOS, published to open-southeners/homebrew-tap. The
-# upload is skipped when HOMEBREW_TAP_GITHUB_TOKEN is not set, so a release
-# never fails for lack of the tap token.
-homebrew_casks:
-  - name: ki
-    ids: [ki-laptop]
-    description: Command-line client for Kiarga and the ki agent
-    homepage: https://github.com/open-southeners/ki
-    license: Apache-2.0
-    binaries: [ki]
-    directory: Casks
-    repository:
-      owner: open-southeners
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    skip_upload: '{{ not (isEnvSet "HOMEBREW_TAP_GITHUB_TOKEN") }}'
-    # The binary is not notarized; clear the quarantine flag so macOS runs it.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr",
-                           args: ["-dr", "com.apple.quarantine", "#{staged_path}/ki"]
-          end
-
+# Homebrew: the open-southeners/homebrew-tap updater picks up the macOS
+# archives (ki_<version>_darwin_<arch>.tar.gz) from each release on its own.
 checksum:
   name_template: checksums.txt
   algorithm: sha256

@@ -338,7 +338,7 @@ main() {
 	fi
 
 	if [ "$(uname -s)" = "Darwin" ]; then
-		die "this installs the agent for Linux servers; on macOS install the ki CLI with: brew install open-southeners/tap/ki (or download ki_darwin_<arch>.tar.gz from the releases page)"
+		die "this installs the agent for Linux servers; on macOS install the ki CLI with: brew install open-southeners/tap/ki (or download ki_<version>_darwin_<arch>.tar.gz from the releases page)"
 	fi
 	[ "$(uname -s)" = "Linux" ] || die "only Linux is supported"
 	if [ "$(id -u)" -ne 0 ]; then

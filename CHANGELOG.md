@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **`ki` for macOS and Windows**: releases include `ki_darwin_<arch>.tar.gz` and `ki_windows_<arch>.zip` (amd64 and arm64), and a Homebrew cask (`brew install open-southeners/tap/ki`), ready for the upcoming `ki login` and Kiarga commands. `ki agent` commands stay server-side on Linux.
+- **`ki` for macOS and Windows**: releases include `ki_<version>_darwin_<arch>.tar.gz` and `ki_<version>_windows_<arch>.zip` (amd64 and arm64), and `ki` installs with Homebrew from the Open Southeners tap (`brew install open-southeners/tap/ki`), ready for the upcoming `ki login` and Kiarga commands. `ki agent` commands stay server-side on Linux.
 
 ### Changed
 
