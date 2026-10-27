@@ -75,10 +75,12 @@ signs:
     output: true
 
   # ed25519 signature the agent's updater verifies against its compiled-in key.
+  # The command inherits GoReleaser's environment, so KI_RELEASE_SIGNING_KEY
+  # (set by the release workflow) reaches it; release-sign fails when it is
+  # unset. Do not template it into `env:` here: in a sign entry's env list,
+  # {{ .Env }} only sees the entries above it, never the process environment.
   - id: ed25519
     cmd: go
-    env:
-      - KI_RELEASE_SIGNING_KEY={{ .Env.KI_RELEASE_SIGNING_KEY }}
     signature: "${artifact}.sig"
     args:
       - run

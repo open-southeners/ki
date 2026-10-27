@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Releases include their binaries again: the 1.0.0 and 1.0.1 GitHub releases were published without archives, `checksums.txt`, signatures or `install.sh` because the signing step could not read the release key.
+
 ## [1.0.1] - 2026-10-27
 
 ### Fixed
