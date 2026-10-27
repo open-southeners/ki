@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-27
+
+### Fixed
+
+- **Updates** now install: 1.0.0 shipped without the release signing key, so its updater refused every release. Because a 1.0.0 agent still cannot verify newer releases, move servers from 1.0.0 to 1.0.1 by re-running the installer (`curl -fsSL .../releases/latest/download/install.sh | sudo sh`); from 1.0.1 on, the panel's **Update now** and `sudo ki-agent update` work.
+- Release builds report their version as `1.0.1` while tags are `v1.0.1`; the updater now treats both forms as the same version, so new releases show as available, downgrades are refused, and a successful update is no longer rolled back by its health check.
+
 ## [1.0.0] - 2026-10-27
 
 First public release.
@@ -89,5 +96,6 @@ First public release.
   - Tagged versions publish Linux amd64 and arm64 archives, `checksums.txt`, a keyless cosign signature and an ed25519 signature (`checksums.txt.sig`) on GitHub Releases, with the matching `CHANGELOG.md` section as notes; tags with a suffix such as `-rc.1` are published as pre-releases. See "Release signing" in the README.
   - `scripts/local-release.sh` builds release-shaped archives, `checksums.txt` and `install.sh` from a checkout so a server can be installed with `KI_INSTALL_BASE_URL=file://...` before a public release.
 
-[Unreleased]: https://github.com/open-southeners/ki-agent/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/open-southeners/ki-agent/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/open-southeners/ki-agent/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/open-southeners/ki-agent/releases/tag/v1.0.0
