@@ -157,23 +157,23 @@ func newProjectsCreateCmd(f *flags) *cobra.Command {
 		Long: `Create a project from a Git repository.
 
 For SSH URLs the agent generates a deploy key; add its public key to the
-repository as a read-only deploy key and run "ki-agent projects verify".
+repository as a read-only deploy key and run "ki agent projects verify".
 For private HTTPS repositories pass an access token on standard input
 (--token-stdin) or from a file (--token-file).
 
 With --compose-file the argument is the project slug and the project is
 created from that Compose file ("-" reads standard input) instead of a Git
-repository; see "ki-agent projects compose".
+repository; see "ki agent projects compose".
 
 With --image the argument is the project slug and the agent generates a
 Compose file for that one image (a pinned tag or digest, not "latest"):
 --port publishes the container port, --domain (repeatable, needs --port) and
 --path expose it, --volume name:/path[:ro] mounts named volumes and --env
 KEY=VALUE sets plain variables (use "projects env" for secrets). Release new
-tags with "ki-agent projects image set".`,
-		Example: `  ki-agent projects create https://github.com/acme/web.git
-  ki-agent projects create site --compose-file compose.yaml
-  ki-agent projects create app --image registry.example.com/team/app:1.2.3 \
+tags with "ki agent projects image set".`,
+		Example: `  ki agent projects create https://github.com/acme/web.git
+  ki agent projects create site --compose-file compose.yaml
+  ki agent projects create app --image registry.example.com/team/app:1.2.3 \
       --port 8080 --domain app.example.com --volume data:/app/data`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -533,7 +533,7 @@ func printDeployKey(w io.Writer, p *project) {
 		return
 	}
 	fmt.Fprintf(w, "\nDeploy key:\n  %s\n\n", p.Auth.PublicKey)
-	fmt.Fprintf(w, "Add it as a read-only deploy key, then run `ki-agent projects verify %s`.\n", p.Slug)
+	fmt.Fprintf(w, "Add it as a read-only deploy key, then run `ki agent projects verify %s`.\n", p.Slug)
 }
 
 // printSecrets writes the one-time webhook secret and the deploy key

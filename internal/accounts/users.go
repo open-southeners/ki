@@ -228,7 +228,7 @@ func (s *Service) PanelSetup(ctx context.Context, username string) (*SetupLink, 
 		return nil, err
 	}
 	if n > 0 {
-		return nil, invalidf("an admin exists; use `ki-agent users reset <name>`")
+		return nil, invalidf("an admin exists; use `ki agent users reset <name>`")
 	}
 	u, err := s.st.GetUser(ctx, username)
 	switch {

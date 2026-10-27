@@ -34,7 +34,7 @@ const (
 	seenFile = "result.seen"
 
 	helperMissingMsg = "the update helper did not run; is ki-agent-update.path enabled?"
-	applyRefusedMsg  = "updates are installed from the panel or with sudo ki-agent update"
+	applyRefusedMsg  = "updates are installed from the panel or with sudo ki agent update"
 
 	// helperUnit is the systemd path unit that makes installing from the
 	// panel possible.
@@ -259,7 +259,7 @@ func (h *Handlers) apply(_ context.Context, p *rpc.Peer, params json.RawMessage)
 		return nil, rpc.NewError(rpc.CodeInvalidParams, "invalid params: "+in.Version+" is not the latest available release")
 	}
 	if !h.opts.ApplySupported() {
-		return nil, rpc.NewError(rpc.CodeInvalidParams, "installing from the panel is not set up on this server; run sudo ki-agent update")
+		return nil, rpc.NewError(rpc.CodeInvalidParams, "installing from the panel is not set up on this server; run sudo ki agent update")
 	}
 
 	h.mu.Lock()

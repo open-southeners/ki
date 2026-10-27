@@ -116,7 +116,7 @@ func TestLoadErrors(t *testing.T) {
 		{"bad env mode", "", map[string]string{"KI_SOCKET_MODE": "rw"}, "KI_SOCKET_MODE"},
 		{"bad env duration", "", map[string]string{"KI_API_HEARTBEAT_TIMEOUT": "x"}, "KI_API_HEARTBEAT_TIMEOUT"},
 		{"empty docker host", "docker:\n  host: \"\"\n", nil, "docker.host"},
-		{"old websocket section", "websocket:\n  listen: 127.0.0.1:9000\n  token_file: /x\n", nil, "websocket: replaced by api (api.listen); bearer tokens are now created with `ki-agent tokens create`"},
+		{"old websocket section", "websocket:\n  listen: 127.0.0.1:9000\n  token_file: /x\n", nil, "websocket: replaced by api (api.listen); bearer tokens are now created with `ki agent tokens create`"},
 		{"old websocket empty key", "websocket:\n", nil, "websocket: replaced by api"},
 		{"api listen empty", "api:\n  listen: \"\"\n", nil, "api.listen"},
 		{"api listen all interfaces", "api:\n  listen: 0.0.0.0:8091\n", nil, "loopback"},

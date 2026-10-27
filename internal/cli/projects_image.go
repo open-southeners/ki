@@ -119,8 +119,8 @@ are refused. --service picks the service when several have an image.
 
 With --deploy the new version is deployed and the deploy log followed until it
 finishes (--detach returns at once).`,
-		Example: `  ki-agent projects image set web 1.4.2 --deploy
-  ki-agent projects image set web --image registry.example.com/team/app:1.4.2`,
+		Example: `  ki agent projects image set web 1.4.2 --deploy
+  ki agent projects image set web --image registry.example.com/team/app:1.4.2`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if detach && !doDeploy {

@@ -140,7 +140,7 @@ func TestHandlersApplyRefusedOutsidePanel(t *testing.T) {
 	for name, tc := range cases {
 		c := e.client(t, tc.transport, tc.pr)
 		re := hdlWantCode(t, hdlCall(t, c, MethodApply, map[string]string{"version": "v0.4.0"}, nil), rpc.CodeUnauthorized)
-		if re.Message != "updates are installed from the panel or with sudo ki-agent update" {
+		if re.Message != "updates are installed from the panel or with sudo ki agent update" {
 			t.Errorf("%s: message = %q", name, re.Message)
 		}
 	}

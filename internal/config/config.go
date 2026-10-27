@@ -449,7 +449,7 @@ func (t Tunnel) validate() error {
 }
 
 // Updates configures the check for new agent releases on GitHub. Installing
-// an update is never automatic; see `ki-agent update`.
+// an update is never automatic; see `ki agent update`.
 type Updates struct {
 	// Check enables the periodic lookup of the latest release. False means
 	// GitHub is never contacted.
@@ -585,7 +585,7 @@ func LoadWithEnv(path string, lookup func(string) (string, bool)) (*Config, erro
 		var probe map[string]any
 		if err := yaml.Unmarshal(b, &probe); err == nil {
 			if _, ok := probe["websocket"]; ok {
-				return nil, fmt.Errorf("parse config %s: websocket: replaced by api (api.listen); bearer tokens are now created with `ki-agent tokens create`", path)
+				return nil, fmt.Errorf("parse config %s: websocket: replaced by api (api.listen); bearer tokens are now created with `ki agent tokens create`", path)
 			}
 		}
 		dec := yaml.NewDecoder(strings.NewReader(string(b)))

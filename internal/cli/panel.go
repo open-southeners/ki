@@ -23,7 +23,7 @@ func newPanelSetupCmd(f *flags) *cobra.Command {
 		Short: "Print the link to create the first panel admin",
 		Long: `Print the one-time link that creates the first admin of the web panel.
 
-It only works while no admin exists; afterwards use "ki-agent users reset
+It only works while no admin exists; afterwards use "ki agent users reset
 <username>" to issue a new link.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

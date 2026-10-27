@@ -111,7 +111,7 @@ func startCLI(ctx context.Context, sock string, args ...string) *runningCLI {
 	cmd.SetOut(r.out)
 	cmd.SetErr(r.out)
 	cmd.SetIn(strings.NewReader(""))
-	cmd.SetArgs(append([]string{"--socket", sock}, args...))
+	cmd.SetArgs(append([]string{"agent", "--socket", sock}, args...))
 	go func() { r.done <- cmd.ExecuteContext(ctx) }()
 	return r
 }

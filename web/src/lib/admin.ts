@@ -25,7 +25,7 @@ export interface DotenvResult {
 }
 
 /**
- * Parses a dotenv text with the same rules as `ki-agent projects env import`:
+ * Parses a dotenv text with the same rules as `ki agent projects env import`:
  * NAME=VALUE with an optional "export " prefix, blank and # lines skipped,
  * single quotes literal, double quotes with \n \r \t \" \\ escapes, unquoted
  * values end at an unescaped " #".

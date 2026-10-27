@@ -28,7 +28,7 @@ type LookupOptions struct {
 
 // LookupRelease fetches release information directly from GitHub, without a
 // cache: the latest release of the channel, or the one tagged Version. It is
-// what `sudo ki-agent update` uses, so no running agent is needed.
+// what `sudo ki agent update` uses, so no running agent is needed.
 func LookupRelease(ctx context.Context, o LookupOptions) (*Release, error) {
 	if o.BaseURL == "" {
 		o.BaseURL = DefaultAPIBaseURL

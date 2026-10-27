@@ -45,7 +45,7 @@ func printTunnelStatus(cmd *cobra.Command, st tunnelStatus) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "State\t%s\n", st.State)
 	if st.State == "unconfigured" {
-		fmt.Fprintln(tw, "\tstore the tunnel token with: ki-agent tunnel configure --token-stdin")
+		fmt.Fprintln(tw, "\tstore the tunnel token with: ki agent tunnel configure --token-stdin")
 	}
 	ready := "no"
 	if st.Ready {

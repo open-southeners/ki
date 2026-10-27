@@ -48,7 +48,7 @@ export function TunnelCard() {
                 <>
                   <dt className="label-mono self-center">Token</dt>
                   <dd className="text-xs text-muted-foreground">
-                    Run <Mono className="text-xs">ki-agent tunnel configure --token-stdin</Mono> on the server.
+                    Run <Mono className="text-xs">ki agent tunnel configure --token-stdin</Mono> on the server.
                   </dd>
                 </>
               )}

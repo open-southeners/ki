@@ -218,7 +218,7 @@ describe("updates", () => {
     expect(updateBlocker({ ...base, latest: null })).toContain("up to date");
     const r = updateBlocker({ ...base, apply_supported: false });
     expect(r).toContain("ki-agent-update.path");
-    expect(r).toContain("sudo ki-agent update");
+    expect(r).toContain("sudo ki agent update");
   });
 
   test("updateResultBadge", () => {

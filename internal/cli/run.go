@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,12 +46,18 @@ import (
 	"github.com/open-southeners/ki-agent/internal/webhooks"
 )
 
+// goos is the host OS; a variable so tests can simulate other platforms.
+var goos = goruntime.GOOS
+
 func newRunCmd(f *flags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run the agent in the foreground until SIGINT or SIGTERM",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if goos != "linux" {
+				return fmt.Errorf("ki agent run is only supported on Linux (this is %s)", goos)
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			explicit := cmd.Flags().Changed("config")
@@ -438,7 +445,7 @@ func warnLegacyEnv(logger *slog.Logger) {
 		name, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(name, "KI_WEBSOCKET_") {
 			logger.Warn("environment variable ignored: the websocket section was replaced by api; use KI_API_* "+
-				"(KI_API_LISTEN) and create bearer tokens with `ki-agent tokens create`", "name", name)
+				"(KI_API_LISTEN) and create bearer tokens with `ki agent tokens create`", "name", name)
 		}
 	}
 }

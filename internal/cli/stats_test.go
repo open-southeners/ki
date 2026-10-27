@@ -133,7 +133,7 @@ func TestStatsWatch(t *testing.T) {
 	var out syncBuffer
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--socket", sock, "stats", "--watch", "--interval", "1500ms"})
+	cmd.SetArgs([]string{"agent", "--socket", sock, "stats", "--watch", "--interval", "1500ms"})
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd.SetContext(ctx)
 	errc := make(chan error, 1)
@@ -206,7 +206,7 @@ func TestStatsWatchJSON(t *testing.T) {
 	var out syncBuffer
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--socket", sock, "containers", "stats", "--watch", "--json"})
+	cmd.SetArgs([]string{"agent", "--socket", sock, "containers", "stats", "--watch", "--json"})
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd.SetContext(ctx)
 	errc := make(chan error, 1)

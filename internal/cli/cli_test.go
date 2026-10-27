@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,19 +12,105 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/version"
 )
 
 func TestVersionCmd(t *testing.T) {
+	want := "ki " + version.Version + " (commit " + version.Commit + ")\n"
+	for _, args := range [][]string{{"version"}, {"agent", "version"}} {
+		cmd := newRootCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != want {
+			t.Fatalf("%v: output %q, want %q", args, out.String(), want)
+		}
+	}
+}
+
+func TestRootHelpListsAgentAndVersion(t *testing.T) {
 	cmd := newRootCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"version"})
+	cmd.SetArgs([]string{"--help"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if want := "ki-agent " + version.Version; !strings.Contains(out.String(), want) {
-		t.Fatalf("output %q missing %q", out.String(), want)
+	for _, want := range []string{"agent ", "version "} {
+		if !strings.Contains(out.String(), "\n  "+want) {
+			t.Errorf("help missing command %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestAgentTreeCommands(t *testing.T) {
+	agent, _, err := newRootCmd().Find([]string{"agent"})
+	if err != nil || agent.Name() != "agent" {
+		t.Fatalf("agent command: %v %v", agent, err)
+	}
+	for _, name := range []string{"run", "status", "projects", "deploy", "deploys", "services", "containers", "logs",
+		"stats", "edge", "tunnel", "aws", "users", "tokens", "panel", "audit", "enroll", "unenroll", "update", "version"} {
+		if c, _, err := agent.Find([]string{name}); err != nil || c.Name() != name {
+			t.Errorf("ki agent %s missing: %v", name, err)
+		}
+	}
+}
+
+func TestRootForDispatch(t *testing.T) {
+	for argv0, want := range map[string]string{
+		"ki":                      "ki",
+		"/usr/local/bin/ki":       "ki",
+		"ki-agent":                "ki-agent",
+		"/usr/local/bin/ki-agent": "ki-agent",
+	} {
+		if got := rootFor(argv0).Name(); got != want {
+			t.Errorf("rootFor(%q) = %q, want %q", argv0, got, want)
+		}
+	}
+}
+
+func TestStatusViaAlias(t *testing.T) {
+	sock := startAgent(t, func(r *rpc.Router) {
+		r.Handle("runtime.info", func(context.Context, *rpc.Peer, json.RawMessage) (any, error) {
+			return map[string]string{"name": "docker", "version": "27.0.1", "api_version": "1.46"}, nil
+		})
+		projectsStubs(&calls{})(r)
+	})
+	for _, argv0 := range []string{"ki-agent", "/usr/local/bin/ki-agent"} {
+		cmd := rootFor(argv0)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"--socket", sock, "status"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%s: %v", argv0, err)
+		}
+		if !strings.Contains(out.String(), "docker 27.0.1") {
+			t.Errorf("%s: unexpected status output:\n%s", argv0, out.String())
+		}
+	}
+	// And the same through `ki agent status`.
+	out, _, err := runCLI(t, sock, "", "status")
+	if err != nil || !strings.Contains(out, "docker 27.0.1") {
+		t.Fatalf("ki agent status: %v\n%s", err, out)
+	}
+}
+
+func TestRunRefusesOffLinux(t *testing.T) {
+	old := goos
+	goos = "darwin"
+	t.Cleanup(func() { goos = old })
+	cmd := newRootCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"agent", "run"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "only supported on Linux") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

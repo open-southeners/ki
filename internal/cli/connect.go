@@ -93,7 +93,7 @@ func callOnce(cmd *cobra.Command, f *flags, method string, params, result any) e
 var repositoryHints = map[string]string{
 	"invalid_url":       "use https://host/org/repo.git or git@host:org/repo.git",
 	"unreachable":       "the agent host cannot reach the Git server; check DNS and network access",
-	"auth_failed":       "for https pass a token with --token-stdin or --token-file; for ssh add the deploy key, then run `ki-agent projects verify`",
+	"auth_failed":       "for https pass a token with --token-stdin or --token-file; for ssh add the deploy key, then run `ki agent projects verify`",
 	"not_found":         "check the URL and that the credentials can read the repository",
 	"ref_not_found":     "the branch or tag does not exist; check --branch or --tags",
 	"compose_not_found": "pass the Compose file path with --compose PATH",
@@ -103,8 +103,8 @@ var repositoryHints = map[string]string{
 var enrollmentHints = map[string]string{
 	"unreachable":      "the agent host cannot reach the enrollment server; check the URL, DNS and network access",
 	"invalid_response": "the server does not speak the ki-agent enrollment protocol; check the URL",
-	"denied":           "the request was denied on the control plane; run `ki-agent enroll` again to retry",
-	"expired":          "the code was not approved in time; run `ki-agent enroll` again",
+	"denied":           "the request was denied on the control plane; run `ki agent enroll` again to retry",
+	"expired":          "the code was not approved in time; run `ki agent enroll` again",
 }
 
 // explainError turns JSON-RPC errors into user-facing messages.
@@ -155,8 +155,8 @@ func explainError(err error) error {
 
 // deployHints maps a DeployError reason to a one-line suggestion.
 var deployHints = map[string]string{
-	"project_not_ready": "grant the agent access to the repository, then run `ki-agent projects verify <slug>`",
-	"ref_not_allowed":   "only the project's trigger branch or matching tags can be deployed; see `ki-agent projects get <slug>`",
+	"project_not_ready": "grant the agent access to the repository, then run `ki agent projects verify <slug>`",
+	"ref_not_allowed":   "only the project's trigger branch or matching tags can be deployed; see `ki agent projects get <slug>`",
 	"ref_not_found":     "the branch, tag or commit does not exist on the remote",
 }
 

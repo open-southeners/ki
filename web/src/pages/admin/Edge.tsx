@@ -80,7 +80,7 @@ export default function Edge() {
                   <AlertDescription>
                     The edge listens on loopback over plain HTTP only. The front web server owns ports 80/443 and TLS,
                     so no ACME certificates are requested here. Print the server blocks to add with{" "}
-                    <Mono>ki-agent edge proxy-config</Mono>.
+                    <Mono>ki agent edge proxy-config</Mono>.
                   </AlertDescription>
                 </div>
               </Alert>
@@ -141,7 +141,7 @@ export default function Edge() {
             >
               <p className="mb-3 text-sm text-muted-foreground">
                 To use your own certificate (including a wildcard), import it on the server with{" "}
-                <Mono>ki-agent edge certificate import --cert … --key …</Mono>. Private keys never go through the
+                <Mono>ki agent edge certificate import --cert … --key …</Mono>. Private keys never go through the
                 browser.
               </p>
               {s.certificates.length === 0 ? (

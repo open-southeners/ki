@@ -311,7 +311,7 @@ export function updateBlocker(s: UpdateStatus): string | null {
   if (s.current === "dev") return "This is a development build and cannot be updated.";
   if (!s.update_available || !s.latest) return "The agent is up to date.";
   if (!s.apply_supported) {
-    return "The update helper is not installed. Enable ki-agent-update.path, or run sudo ki-agent update on the server.";
+    return "The update helper is not installed. Enable ki-agent-update.path, or run sudo ki agent update on the server.";
   }
   return null;
 }

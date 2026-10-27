@@ -77,11 +77,11 @@ export function ProjectsTable({ compact = false }: { compact?: boolean }) {
       <EmptyState title="No projects yet">
         {compact ? (
           <>
-            Admins can add one from the <Link to="/projects" className="text-primary underline-offset-4 hover:underline">Projects</Link> page; from a terminal, run <Mono>ki-agent projects create</Mono>.
+            Admins can add one from the <Link to="/projects" className="text-primary underline-offset-4 hover:underline">Projects</Link> page; from a terminal, run <Mono>ki agent projects create</Mono>.
           </>
         ) : (
           <>
-            Admins can use the New project button above; from a terminal, run <Mono>ki-agent projects create</Mono>.
+            Admins can use the New project button above; from a terminal, run <Mono>ki agent projects create</Mono>.
           </>
         )}
       </EmptyState>

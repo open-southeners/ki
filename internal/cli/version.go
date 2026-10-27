@@ -9,10 +9,10 @@ import (
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print the ki-agent version",
+		Short: "Print the ki version",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
-			cmd.Printf("ki-agent %s (commit %s)\n", version.Version, version.Commit)
+			cmd.Printf("ki %s (commit %s)\n", version.Version, version.Commit)
 		},
 	}
 }

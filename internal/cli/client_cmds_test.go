@@ -133,7 +133,7 @@ func runCLI(t *testing.T, sock, stdin string, args ...string) (stdout, stderr st
 	cmd.SetOut(&out)
 	cmd.SetErr(&errb)
 	cmd.SetIn(strings.NewReader(stdin))
-	cmd.SetArgs(append([]string{"--socket", sock}, args...))
+	cmd.SetArgs(append([]string{"agent", "--socket", sock}, args...))
 	err = cmd.Execute()
 	return out.String(), errb.String(), err
 }
@@ -149,7 +149,7 @@ func TestProjectsCreate(t *testing.T) {
 	for _, want := range []string{
 		"Project priv created (pending_access)", "tags v*", "shown only once", "s3cr3t",
 		"/hooks/def", "application/json", "Tag push events", "ssh-ed25519 AAAAKEY",
-		"read-only deploy key", "ki-agent projects verify priv",
+		"read-only deploy key", "ki agent projects verify priv",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
@@ -555,7 +555,7 @@ func TestLogsCtrlC(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--socket", sock, "logs", "c"})
+	cmd.SetArgs([]string{"agent", "--socket", sock, "logs", "c"})
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd.SetContext(ctx)
 	errc := make(chan error, 1)

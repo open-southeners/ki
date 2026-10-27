@@ -32,7 +32,7 @@ binary was built with a default.`,
 			if len(args) == 1 {
 				params["url"] = args[0]
 			} else if version.EnrollURL == "" {
-				return errors.New("no control plane URL: pass it as an argument, for example `ki-agent enroll https://cp.example.com`")
+				return errors.New("no control plane URL: pass it as an argument, for example `ki agent enroll https://cp.example.com`")
 			}
 			if force {
 				params["force"] = true
@@ -87,7 +87,7 @@ binary was built with a default.`,
 func explainEnrollError(err error) error {
 	var re *rpc.Error
 	if errors.As(err, &re) && re.Code == rpc.CodeAlreadyExists && strings.HasPrefix(re.Message, "already enrolled") {
-		return errors.New("already enrolled: run `ki-agent unenroll` first or pass --force")
+		return errors.New("already enrolled: run `ki agent unenroll` first or pass --force")
 	}
 	return explainError(err)
 }
