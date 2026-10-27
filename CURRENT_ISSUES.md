@@ -474,13 +474,3 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   unaffected.
 - **Fix:** have `install.sh` write a drop-in for both units from the configured `data_dir`, or document
   the limitation in the README's Updating section.
-
-## `TestConfigEnvFileAndInclude` fails on GitHub's runner (CI)
-
-- **Where:** `internal/compose` (`TestConfigEnvFileAndInclude`).
-- **What:** the Docker Compose version on `ubuntu-latest` no longer reports `env_file` entries of
-  included files in `docker compose config` (`env_file = []`), so the test's expectation of seeing
-  `/etc/passwd` there fails and CI on `main` is red. The policy itself does not depend on it: the
-  include pre-scan reads the files directly.
-- **Fix:** make the test assert the pre-scan result instead of Compose's rendering, or skip the
-  rendering assertion when Compose inlines `env_file`.
