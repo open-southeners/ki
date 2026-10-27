@@ -474,3 +474,11 @@ Discovered during orchestrated work; routed here instead of fixed inline.
   unaffected.
 - **Fix:** have `install.sh` write a drop-in for both units from the configured `data_dir`, or document
   the limitation in the README's Updating section.
+
+## `ki agent` client commands on Windows fail without a clear message (M8b)
+
+- **Where:** `internal/cli/connect.go` (`resolveSocket` / the socket dial).
+- **What:** the Windows build of `ki` compiles, but `ki agent …` commands that talk to a local agent
+  over its Unix socket fail at dial time with a low-level error. There is no agent on Windows, so a
+  plain "not supported on Windows" message would be clearer.
+- **Fix:** when `ki login` lands, return a clear error from the socket dial on `GOOS=windows`.

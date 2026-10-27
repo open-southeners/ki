@@ -69,6 +69,19 @@ The CLI talks to the agent over a socket owned by the `ki-agent` group, so
 users who should run `ki agent status` and friends must be in that group
 (`sudo usermod -aG ki-agent USER`, then log in again) or use `sudo`.
 
+### Install the `ki` CLI on macOS or Windows
+
+The same `ki` binary is published for laptops. On macOS:
+
+```sh
+brew install open-southeners/tap/ki
+```
+
+Or download `ki_<os>_<arch>` (`ki_darwin_arm64.tar.gz`, `ki_windows_amd64.zip`,
+and so on) from the [releases page](https://github.com/open-southeners/ki/releases)
+and put `ki` on your `PATH`. The `ki agent` commands are for the server and need
+Linux; `ki login` and the Kiarga commands are coming.
+
 ### Installing a local build
 
 Before a public release, or to try an unreleased branch, build release-shaped
