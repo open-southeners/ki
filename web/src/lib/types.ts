@@ -475,6 +475,42 @@ export interface TunnelStatus {
   warnings: string[];
 }
 
+// ----------------------------------------------------------------- updates
+
+export interface UpdateRelease {
+  tag: string;
+  name: string;
+  published_at: Timestamp;
+  url: string;
+  /** Release notes as plain text (markdown source; never render as HTML). */
+  notes: string;
+  prerelease: boolean;
+}
+
+export interface UpdateResult {
+  id: string;
+  status: "succeeded" | "failed" | "rolled_back";
+  from: string;
+  to: string;
+  started_at: Timestamp;
+  finished_at: Timestamp;
+  error?: string;
+}
+
+export interface UpdateStatus {
+  /** "dev" in source builds. */
+  current: string;
+  channel: "stable" | "prerelease";
+  check_enabled: boolean;
+  checked_at: Timestamp | null;
+  check_error: string | null;
+  latest: UpdateRelease | null;
+  update_available: boolean;
+  apply_supported: boolean;
+  state: "idle" | "requested";
+  last_result: UpdateResult | null;
+}
+
 export interface EdgeCSRResult {
   hostname: string;
   csr: string;
@@ -614,6 +650,9 @@ export interface MethodMap {
   "containers.stats.unsubscribe": { params: { subscription: SubscriptionID }; result: Record<string, never> };
   "aws.status": { params: undefined; result: AwsStatus };
   "tunnel.status": { params: undefined; result: TunnelStatus };
+  "updates.status": { params: undefined; result: UpdateStatus };
+  "updates.check": { params: undefined; result: UpdateStatus };
+  "updates.apply": { params: { version: string }; result: { id: string; state: "requested" } };
   "edge.status": { params: undefined; result: EdgeStatus };
   "edge.csr": { params: { hostname: string }; result: EdgeCSRResult };
   "edge.certificate.install": { params: { hostname: string; certificate: string }; result: EdgeStatus };

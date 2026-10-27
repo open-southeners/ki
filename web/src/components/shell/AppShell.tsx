@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Globe, KeyRound, LayoutDashboard, Menu, ScrollText, Users, X, type LucideIcon } from "lucide-react";
+import { Boxes, Globe, KeyRound, LayoutDashboard, Menu, RefreshCw, ScrollText, Users, X, type LucideIcon } from "lucide-react";
 import * as React from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ConnectionIndicator } from "@/components/shell/ConnectionIndicator";
 import { Wordmark } from "@/components/shell/Logo";
@@ -28,6 +28,7 @@ const ADMIN: NavItem[] = [
   { to: "/admin/tokens", label: "Tokens", icon: KeyRound },
   { to: "/admin/audit", label: "Audit", icon: ScrollText },
   { to: "/admin/edge", label: "Edge", icon: Globe },
+  { to: "/admin/updates", label: "Updates", icon: RefreshCw },
 ];
 
 /** Layout route for every signed-in page: owns the RPC connection, the role and the navigation. */
@@ -110,6 +111,7 @@ function Frame() {
                 agent {rpc.hello.agent.version} · proto {rpc.hello.protocol}
               </p>
             )}
+            {conn === "open" && <UpdateBadge isAdmin={isAdmin} />}
           </div>
           <UserMenu />
         </div>
@@ -121,6 +123,28 @@ function Frame() {
         </div>
       </main>
     </div>
+  );
+}
+
+/** "Update available" hint under the agent version; shows nothing if the agent has no updates API. */
+function UpdateBadge({ isAdmin }: { isAdmin: boolean }) {
+  const api = useApi();
+  const q = useQuery({
+    queryKey: ["updates", "status"],
+    queryFn: () => api.updates.status(),
+    refetchInterval: 5 * 60_000,
+    retry: false,
+  });
+  const s = q.data;
+  if (!s?.update_available || !s.latest) return null;
+  const label = `Update available · ${s.latest.tag}`;
+  const cls = "mt-1.5 inline-block rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary";
+  return isAdmin ? (
+    <Link to="/admin/updates" className={cn(cls, "hover:bg-primary/20")}>
+      {label}
+    </Link>
+  ) : (
+    <span className={cls}>{label}</span>
   );
 }
 

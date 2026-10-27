@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { RpcError } from "@/lib/rpc";
-import type { Deploy, HostSample, ProjectService } from "@/lib/types";
+import type { Deploy, HostSample, ProjectService, UpdateStatus } from "@/lib/types";
 import {
   appendHostSample,
   awsAgentBadge,
@@ -19,6 +19,9 @@ import {
   rollbackTargets,
   serviceCounts,
   serviceStateBadge,
+  shouldReloadAfterUpdate,
+  updateBlocker,
+  updateResultBadge,
 } from "./logic";
 
 function sample(t: number, cpu: number | null = 10): HostSample {
@@ -190,5 +193,44 @@ describe("aws helpers", () => {
   });
   test("pull_failed has friendly text", () => {
     expect(failureReasonText("pull_failed")).toContain("pulled");
+  });
+});
+
+describe("updates", () => {
+  const base: UpdateStatus = {
+    current: "v0.3.0",
+    channel: "stable",
+    check_enabled: true,
+    checked_at: null,
+    check_error: null,
+    latest: { tag: "v0.4.0", name: "v0.4.0", published_at: "2026-01-01T00:00:00Z", url: "https://x", notes: "", prerelease: false },
+    update_available: true,
+    apply_supported: true,
+    state: "idle",
+    last_result: null,
+  };
+
+  test("updateBlocker", () => {
+    expect(updateBlocker(base)).toBeNull();
+    expect(updateBlocker({ ...base, state: "requested" })).toContain("in progress");
+    expect(updateBlocker({ ...base, current: "dev", update_available: false })).toContain("development");
+    expect(updateBlocker({ ...base, update_available: false })).toContain("up to date");
+    expect(updateBlocker({ ...base, latest: null })).toContain("up to date");
+    const r = updateBlocker({ ...base, apply_supported: false });
+    expect(r).toContain("ki-agent-update.path");
+    expect(r).toContain("sudo ki-agent update");
+  });
+
+  test("updateResultBadge", () => {
+    expect(updateResultBadge("succeeded").tone).toBe("success");
+    expect(updateResultBadge("rolled_back").tone).toBe("warning");
+    expect(updateResultBadge("failed").tone).toBe("destructive");
+  });
+
+  test("shouldReloadAfterUpdate", () => {
+    expect(shouldReloadAfterUpdate("v0.3.0", "v0.4.0")).toBe(true);
+    expect(shouldReloadAfterUpdate("v0.3.0", "v0.3.0")).toBe(false);
+    expect(shouldReloadAfterUpdate(null, "v0.4.0")).toBe(false);
+    expect(shouldReloadAfterUpdate("v0.3.0", undefined)).toBe(false);
   });
 });

@@ -9,6 +9,7 @@ import Projects from "@/pages/Projects";
 import Setup from "@/pages/Setup";
 import Audit from "@/pages/admin/Audit";
 import Edge from "@/pages/admin/Edge";
+import Updates from "@/pages/admin/Updates";
 import Tokens from "@/pages/admin/Tokens";
 import Users from "@/pages/admin/Users";
 
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="admin/tokens" element={<Tokens />} />
             <Route path="admin/audit" element={<Audit />} />
             <Route path="admin/edge" element={<Edge />} />
+            <Route path="admin/updates" element={<Updates />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Route>

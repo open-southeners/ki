@@ -15,6 +15,8 @@ import {
   type ProjectService,
   type ServiceState,
   type TunnelStatus,
+  type UpdateResult,
+  type UpdateStatus,
 } from "@/lib/types";
 
 export type BadgeTone = "default" | "secondary" | "outline" | "success" | "warning" | "destructive";
@@ -299,4 +301,33 @@ export function tunnelBadge(s: TunnelStatus["state"]): BadgeSpec {
 /** Whether a certificate name is a wildcard (*.example.com). */
 export function isWildcardName(name: string): boolean {
   return name.startsWith("*.");
+}
+
+// ----------------------------------------------------------------- updates
+
+/** Why "Update now" is unavailable, or null when the update can be requested. */
+export function updateBlocker(s: UpdateStatus): string | null {
+  if (s.state === "requested") return "An update is already in progress.";
+  if (s.current === "dev") return "This is a development build and cannot be updated.";
+  if (!s.update_available || !s.latest) return "The agent is up to date.";
+  if (!s.apply_supported) {
+    return "The update helper is not installed. Enable ki-agent-update.path, or run sudo ki-agent update on the server.";
+  }
+  return null;
+}
+
+export function updateResultBadge(status: UpdateResult["status"]): BadgeSpec {
+  switch (status) {
+    case "succeeded":
+      return { tone: "success", label: "succeeded" };
+    case "rolled_back":
+      return { tone: "warning", label: "rolled back" };
+    default:
+      return { tone: "destructive", label: "failed" };
+  }
+}
+
+/** Whether the panel should reload after a reconnect: the agent now runs another version. */
+export function shouldReloadAfterUpdate(before: string | null, now: string | null | undefined): boolean {
+  return !!before && !!now && before !== now;
 }
