@@ -121,6 +121,15 @@ tunnel:
   # Loopback port of the connector's readiness endpoint (/ready).
   metrics_port: 20241
 
+# Checking GitHub Releases for a newer agent. The agent only reports a new
+# version (panel, `ki-agent update`); it never installs one by itself. Install
+# with `sudo ki-agent update` or the panel's Update now button.
+updates:
+  # Look for new releases every few hours. false = never contact GitHub.
+  check: true
+  # stable = releases only; prerelease = also pre-releases.
+  channel: stable
+
 # Resource monitoring (stats). The agent always samples the host and the
 # managed containers in the background at the base intervals below, and
 # faster (down to 1s for the host, 2s for containers) while a client is

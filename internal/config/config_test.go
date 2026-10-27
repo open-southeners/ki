@@ -422,6 +422,29 @@ func TestTunnelDefaultsEnv(t *testing.T) {
 	}
 }
 
+func TestUpdatesDefaultsEnv(t *testing.T) {
+	if d := Default().Updates; !d.Check || d.Channel != "stable" {
+		t.Fatalf("defaults = %+v", d)
+	}
+	cfg, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(map[string]string{
+		"KI_UPDATES_CHECK": "false", "KI_UPDATES_CHANNEL": "prerelease",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Updates.Check || cfg.Updates.Channel != "prerelease" {
+		t.Fatalf("env updates = %+v", cfg.Updates)
+	}
+	for _, env := range []map[string]string{
+		{"KI_UPDATES_CHANNEL": "nightly"},
+		{"KI_UPDATES_CHECK": "maybe"},
+	} {
+		if _, err := LoadWithEnv(filepath.Join(t.TempDir(), "nope.yaml"), envMap(env)); err == nil {
+			t.Errorf("env %v: want error", env)
+		}
+	}
+}
+
 func TestEdgeValidation(t *testing.T) {
 	tests := []struct {
 		name string
