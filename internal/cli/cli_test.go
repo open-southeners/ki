@@ -166,7 +166,6 @@ func umaskBits() os.FileMode {
 	return os.FileMode(old)
 }
 
-
 // freeLoopbackAddr returns a 127.0.0.1:port that was free a moment ago.
 func freeLoopbackAddr(t *testing.T) string {
 	t.Helper()
