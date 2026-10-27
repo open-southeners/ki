@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-27
+
 ### Fixed
 
 - Releases include their binaries again: the 1.0.0 and 1.0.1 GitHub releases were published without archives, `checksums.txt`, signatures or `install.sh` because the signing step could not read the release key.
@@ -100,6 +102,7 @@ First public release.
   - Tagged versions publish Linux amd64 and arm64 archives, `checksums.txt`, a keyless cosign signature and an ed25519 signature (`checksums.txt.sig`) on GitHub Releases, with the matching `CHANGELOG.md` section as notes; tags with a suffix such as `-rc.1` are published as pre-releases. See "Release signing" in the README.
   - `scripts/local-release.sh` builds release-shaped archives, `checksums.txt` and `install.sh` from a checkout so a server can be installed with `KI_INSTALL_BASE_URL=file://...` before a public release.
 
-[Unreleased]: https://github.com/open-southeners/ki-agent/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/open-southeners/ki-agent/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/open-southeners/ki-agent/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/open-southeners/ki-agent/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/open-southeners/ki-agent/releases/tag/v1.0.0
