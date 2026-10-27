@@ -35,6 +35,10 @@ archives:
       - README.md
       - src: packaging/systemd/ki-agent.service
         dst: ki-agent.service
+      - src: packaging/systemd/ki-agent-update.service
+        dst: ki-agent-update.service
+      - src: packaging/systemd/ki-agent-update.path
+        dst: ki-agent-update.path
       - src: packaging/config.example.yaml
         dst: config.example.yaml
 
@@ -46,21 +50,43 @@ checksum:
 
 # install.sh is published as a plain release asset.
 release:
+  prerelease: auto
   github:
     owner: open-southeners
     name: ki-agent
   extra_files:
     - glob: ./install.sh
 
-# Keyless signature (bundle) over the checksums file; skipped with --skip=sign.
+# Both signatures cover the checksums file; both are skipped with --skip=sign.
 signs:
-  - cmd: cosign
+  # Keyless signature (bundle) for manual verification.
+  - id: cosign
+    cmd: cosign
     signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
       - --yes
       - --bundle=${signature}
       - ${artifact}
+    artifacts: checksum
+    output: true
+
+  # ed25519 signature the agent's updater verifies against its compiled-in key.
+  - id: ed25519
+    cmd: go
+    env:
+      - KI_RELEASE_SIGNING_KEY={{ .Env.KI_RELEASE_SIGNING_KEY }}
+    signature: "${artifact}.sig"
+    args:
+      - run
+      - ./tools/release-sign
+      - sign
+      - --tag
+      - "{{ .Tag }}"
+      - --in
+      - "${artifact}"
+      - --out
+      - "${signature}"
     artifacts: checksum
     output: true
 

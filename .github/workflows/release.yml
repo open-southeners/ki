@@ -23,13 +23,17 @@ jobs:
         with:
           bun-version: 1.4.2
       - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+      - name: Release notes from CHANGELOG.md
+        run: scripts/release-notes.sh "${GITHUB_REF_NAME}" > "$RUNNER_TEMP/release-notes.md"
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes "${{ runner.temp }}/release-notes.md"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Default enrollment URL baked into official builds; set as a repository
           # variable so it never appears in the source.
           KI_ENROLL_URL: ${{ vars.KI_ENROLL_URL }}
+          # Private ed25519 seed the updater's release signature is made with.
+          KI_RELEASE_SIGNING_KEY: ${{ secrets.KI_RELEASE_SIGNING_KEY }}
