@@ -41,9 +41,9 @@ minimum role it needs (`x-role` in the OpenRPC document). Roles are ordered
 
 | Role | Methods |
 |---|---|
-| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `aws.status`, `tunnel.status`, `auth.whoami` |
+| `viewer` | `rpc.discover`, `agent.*`, `runtime.info`, `containers.list`, `containers.inspect`, `containers.logs.subscribe`/`unsubscribe`, `containers.stats`, `containers.stats.subscribe`/`unsubscribe`, `host.stats`, `host.subscribe`/`unsubscribe`, `projects.get`, `projects.list`, `projects.services`, `projects.env.list` (names only), `deploys.get`, `deploys.list`, `deploys.subscribe`/`unsubscribe`, `edge.status`, `aws.status`, `tunnel.status`, `updates.status`, `auth.whoami` |
 | `operator` | viewer, plus `containers.start`, `containers.stop`, `containers.restart`, `deploys.trigger`, `deploys.rollback`, `projects.services.start`/`stop`/`restart` |
-| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`import`/`remove`, `tunnel.configure`/`remove`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
+| `admin` | operator, plus `containers.remove`, `projects.create`, `projects.update`, `projects.verify`, `projects.delete`, `projects.env.set`/`unset`, `projects.expose`/`unexpose`, `edge.csr`, `edge.certificate.install`/`import`/`remove`, `tunnel.configure`/`remove`, `updates.check`/`apply`, `enrollment.*`, `users.*`, `panel.setup`, `tokens.*`, `audit.list` |
 
 A call below the required role fails with `-32001` and the message
 `forbidden: requires <role>`. A method that is not in the role table is denied
@@ -238,7 +238,7 @@ Every connection starts with `agent.hello`:
   `-32003` with `data.supported` set to its own version and **closes the
   connection** after the response.
 - The result carries the agent's `protocol`, `agent` (`name`, `version`,
-  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`, `aws`, `tunnel`).
+  `commit`) and `capabilities` (for example `heartbeat`, `containers`, `projects`, `deploys`, `edge`, `enrollment`, `auth`, `stats`, `aws`, `tunnel`, `updates`).
 - Until `agent.hello` succeeds, every method except `agent.hello` and
   `rpc.discover` fails with `-32002`.
 
@@ -789,6 +789,40 @@ restricted methods answer `-32001` on the agent's HTTP listeners, so a control
 plane can provision a tunnel but a panel session or API token cannot. The
 audit log records the calls without their parameters.
 
+## Updates
+
+Capability `updates`. The agent checks GitHub Releases for a newer version
+(`updates.check` / `updates.channel` in the config) and reports it; installing
+is done by a root helper, never by the agent process.
+
+| Method | Params | Result | Role | Transports |
+|---|---|---|---|---|
+| `updates.status` | none | `UpdateStatus` | viewer | all |
+| `updates.check` | none | `UpdateStatus` | admin | all |
+| `updates.apply` | `version` | `{"id": "...", "state": "requested"}` | admin | WebSocket with a panel session only |
+
+```json
+{"current": "v0.3.0", "channel": "stable", "check_enabled": true,
+ "checked_at": "2026-10-27T10:00:00Z", "check_error": null,
+ "latest": {"tag": "v0.4.0", "name": "v0.4.0", "published_at": "2026-10-26T09:00:00Z",
+            "url": "https://github.com/open-southeners/ki-agent/releases/tag/v0.4.0",
+            "notes": "markdown", "prerelease": false},
+ "update_available": true, "apply_supported": true, "state": "idle", "last_result": null}
+```
+
+`current` is `dev` in source builds, where `update_available` is always false.
+`updates.check` contacts GitHub at most once a minute and otherwise returns the
+cached status. `apply_supported` is false when `ki-agent-update.path` is not
+installed. `state` is `idle` or `requested` (the request is written and the
+helper has not reported yet); `last_result` is the helper's outcome
+(`succeeded`, `failed` or `rolled_back`, with `from`, `to` and `error`).
+
+`updates.apply` accepts only the version that `latest` and `update_available`
+name; anything else, a server without the helper, or an update already
+requested is `-32602`. It answers `-32001` on the Unix socket, the control
+plane, the HTTP API and for API tokens, so only a signed-in panel admin can
+install. The call is recorded in the audit log.
+
 ## Enrollment
 
 Enrollment connects an agent to a control plane without hand-editing its
@@ -1058,7 +1092,7 @@ each line is one text message. Container engine was not running, hence
 > {"jsonrpc":"2.0","id":1,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"handshake required: call agent.hello first"}}
 > {"jsonrpc":"2.0","id":2,"method":"agent.hello","params":{"protocol":"1.0.0","client":{"name":"example-cp","version":"0.1.0"}}}
-< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats","aws","tunnel"],"protocol":"1.0.0"}}
+< {"jsonrpc":"2.0","id":2,"result":{"agent":{"commit":"dev","name":"ki-agent","version":"dev"},"capabilities":["heartbeat","containers","projects","deploys","edge","enrollment","auth","stats","aws","tunnel","updates"],"protocol":"1.0.0"}}
 > {"jsonrpc":"2.0","id":3,"method":"agent.info"}
 < {"jsonrpc":"2.0","id":3,"result":{"arch":"amd64","commit":"dev","go_version":"go1.26.1","hostname":"example-host","os":"linux","uptime_ms":1075,"version":"dev"}}
 > {"jsonrpc":"2.0","id":4,"method":"agent.heartbeat.subscribe","params":{"interval_ms":1000}}

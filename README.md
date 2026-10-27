@@ -47,7 +47,9 @@ sha256 checksum (always) and then installs:
 
 Pass flags with `sh -s -- --version v1.2.3 --enroll`. To **upgrade**, run the
 same command again: it replaces the binary, restarts the service and keeps your
-edited config.
+edited config. Installed agents can also update themselves, see
+[Updating](#updating). The installer enables the `ki-agent-update.path` unit
+that makes installing from the panel possible.
 
 Every release has a `checksums.txt` signed keylessly with
 [cosign](https://github.com/sigstore/cosign) in CI. If `cosign` is installed the
@@ -78,6 +80,59 @@ The directory holds `ki-agent_linux_amd64.tar.gz`, `ki-agent_linux_arm64.tar.gz`
 installer verifies the sha256 checksum as usual. There is no cosign signature
 for a local build, so the installer must run on a machine without `cosign`
 installed (it would otherwise insist on the signature bundle).
+
+## Updating
+
+The agent checks GitHub Releases for a newer version (first after a few
+minutes, then about every 6 hours) and shows it, with the release notes, in the
+panel and the CLI. It never installs anything by itself. There are exactly two
+ways to install an update:
+
+- **Panel**: Admin, Updates. **Check now** looks immediately, the release notes
+  are shown, and **Update now** installs. Only an admin signed in to the panel
+  can do it.
+- **Command line**: `sudo ki-agent update` looks the release up on GitHub,
+  shows the current and the new version with the notes, and asks for
+  confirmation.
+
+| Flag | Effect |
+|---|---|
+| `--check` | Only look for an update, do not install |
+| `--version vX.Y.Z` | Install that release instead of the latest (downgrades are refused) |
+| `--yes`, `-y` | Do not ask for confirmation |
+
+The exit status is `0` on success or when already up to date, `1` on failure
+and `2` when the new version did not start and the update was rolled back.
+Without `sudo`, `ki-agent update` only prints what the running agent knows
+(`--check` makes it look now) and tells you to run `sudo ki-agent update`.
+
+During an update a root helper downloads the release archive and its
+`checksums.txt`, verifies the release signature against the key built into the
+binary and the archive's sha256, and checks that the new binary reports the
+expected version. It then stops the agent, backs up the database and the
+previous binary into `/var/lib/ki-agent-update/`, atomically replaces
+`/usr/local/bin/ki-agent` and starts the agent again. If the agent does not
+answer a health check within a minute, the previous binary and database are put
+back. Containers, the edge and your projects keep running throughout; only the
+agent restarts. Releases whose signature does not verify are never installed.
+
+| Key | Env | Default | Effect |
+|---|---|---|---|
+| `updates.check` | `KI_UPDATES_CHECK` | `true` | `false` never contacts GitHub (the panel and CLI then cannot offer updates) |
+| `updates.channel` | `KI_UPDATES_CHANNEL` | `stable` | `prerelease` also offers pre-releases |
+
+The panel installs through two systemd units from the release:
+`ki-agent-update.path` watches for the request the agent writes when an admin
+presses **Update now**, and starts `ki-agent-update.service`, which runs as root
+because the agent itself (an unprivileged user) cannot replace its own binary or
+restart itself. `install.sh` enables the path unit; on a manual install, copy
+both files from `packaging/systemd/` to `/etc/systemd/system/` and run
+`systemctl enable --now ki-agent-update.path`. Without it the panel shows the
+update but asks you to use `sudo ki-agent update`.
+
+A control plane and API tokens can read the update status (`updates.status`) and
+ask for a check, but cannot install: `updates.apply` is accepted only from a
+panel session. See the [protocol](docs/protocol.md#updates).
 
 ## Prerequisites
 
@@ -867,6 +922,30 @@ update. A failure is reported as `pull_failed` with Docker's message. Set
 are absent. With the systemd unit the directory must be writable by the
 service: the default is inside the data directory; for another location add it
 to `ReadWritePaths=` in a drop-in.
+
+## Release signing
+
+For maintainers. Every release carries `checksums.txt.sig`, an ed25519
+signature over `checksums.txt` and the tag, which the agent's updater verifies
+against the public key compiled into the binary. (The keyless cosign bundle
+stays for `install.sh`.) One-time setup:
+
+```sh
+go run ./tools/release-sign keygen --out release-key.txt   # run it yourself; never share or commit the file
+gh secret set KI_RELEASE_SIGNING_KEY < release-key.txt     # the seed, used by the release workflow
+```
+
+`keygen` prints the public-key line; paste it into the `releaseKeys` map in
+`internal/update/keys.go` and ship a release. **Until a key is there, updates
+fail closed**: no release verifies and nothing installs.
+
+Pushing a `v*` tag runs the release workflow, which signs the release and uses
+the matching section of `CHANGELOG.md` (for example `## [1.2.3]`) as the release
+notes; the build fails if that section is missing or empty. A tag with a suffix
+such as `v1.2.3-rc.1` is published as a pre-release (offered only on the
+`prerelease` channel). `scripts/local-release.sh` signs `checksums.txt` only
+when `KI_RELEASE_SIGNING_KEY` is set in the environment; local builds without it
+cannot be installed by the updater.
 
 ## Development
 

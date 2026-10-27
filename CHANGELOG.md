@@ -139,6 +139,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `NoNewPrivileges`, `PrivateTmp` and `ProtectHome` enabled.
 - **Development stack**: a `Dockerfile` and a Compose file that runs the
   agent next to a Docker-in-Docker sidecar on the `devmesh` network.
+- **Updates**: the agent checks GitHub Releases for a newer version and shows it with its release notes under Admin, Updates in the panel and in `ki-agent update`. An update is installed only by an admin with **Update now** in the panel or with `sudo ki-agent update [--check] [--version vX.Y.Z] [--yes]`; it verifies the release signature and checksum, backs up the database, swaps the binary, restarts the agent and rolls back automatically if the new version does not start (exit status `2`), while containers keep running. `updates.check` and `updates.channel` (`stable` or `prerelease`, env `KI_UPDATES_CHECK`, `KI_UPDATES_CHANNEL`) control the check; `install.sh` enables the new `ki-agent-update.path` unit that makes panel installs work. API: `updates.status`, `updates.check` and `updates.apply` (new `updates` capability; installing is limited to panel sessions, so a control plane or API token cannot do it). Updates only install once a release signing key is built in; see the README.
+- **Signed releases**: releases now carry an ed25519 signature (`checksums.txt.sig`) next to the cosign bundle and use the matching `CHANGELOG.md` section as their notes; tags with a suffix such as `-rc.1` are published as pre-releases. See "Release signing" in the README.
 
 ### Changed
 
