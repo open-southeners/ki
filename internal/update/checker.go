@@ -56,6 +56,18 @@ func ValidTag(tag string) bool {
 	return tagPattern.MatchString(tag) && semver.IsValid(tag)
 }
 
+// Canonical returns v in release-tag form (a single leading "v"). Release
+// builds report their version without the "v" ("1.0.1", from GoReleaser's
+// {{ .Version }}) while release tags and everything in this package use
+// "v1.0.1", so versions must go through Canonical before being compared. A v
+// that is not a valid release version ("dev", "") is returned unchanged.
+func Canonical(v string) string {
+	if c := "v" + strings.TrimPrefix(v, "v"); ValidTag(c) {
+		return c
+	}
+	return v
+}
+
 // CheckerOptions configures a [Checker]. Only Dir and Current are required.
 type CheckerOptions struct {
 	// Dir is the exchange directory holding status.json.
@@ -196,6 +208,7 @@ func (c *Checker) Status() UpdateStatus {
 // IsNewer reports whether latest is a newer release than current. A "dev" or
 // otherwise non-release current version never has an update.
 func IsNewer(current string, latest *Release) bool {
+	current = Canonical(current)
 	if latest == nil || !ValidTag(current) || !ValidTag(latest.Tag) {
 		return false
 	}

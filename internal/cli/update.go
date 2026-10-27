@@ -258,8 +258,8 @@ func runUpdateRoot(cmd *cobra.Command, f *flags, target string, yes, check bool)
 
 	w := cmd.OutOrStdout()
 	current := version.Version
-	released := update.ValidTag(current)
-	if released && semver.Compare(rel.Tag, current) <= 0 {
+	released := update.ValidTag(update.Canonical(current))
+	if released && semver.Compare(rel.Tag, update.Canonical(current)) <= 0 {
 		if target != "" {
 			return fmt.Errorf("%s is not newer than the running version %s; downgrades are refused", rel.Tag, current)
 		}

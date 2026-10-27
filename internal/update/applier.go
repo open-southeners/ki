@@ -106,11 +106,15 @@ func (h SocketHealth) Check(ctx context.Context, wantVersion string) error {
 	if err := c.Call(ctx, "agent.info", nil, &info); err != nil {
 		return err
 	}
-	if info.Version != wantVersion {
+	if !sameVersion(info.Version, wantVersion) {
 		return fmt.Errorf("agent reports version %q, want %q", info.Version, wantVersion)
 	}
 	return nil
 }
+
+// sameVersion reports whether two versions are equal once normalised by
+// [Canonical], so a build reporting "1.0.2" matches the tag "v1.0.2".
+func sameVersion(a, b string) bool { return Canonical(a) == Canonical(b) }
 
 // Applier downloads, verifies and installs a release. It must run as root. The
 // zero value of an optional field selects its default (see [Applier.Apply]).
@@ -220,7 +224,7 @@ func (a *Applier) Apply(ctx context.Context, version string) (Result, error) {
 	if !ValidVersion(version) {
 		return finish(ResultFailed, fmt.Errorf("invalid version %q", version))
 	}
-	if semver.IsValid(a.Current) && semver.Compare(version, a.Current) <= 0 {
+	if cur := Canonical(a.Current); ValidTag(cur) && semver.Compare(version, cur) <= 0 {
 		return finish(ResultFailed, fmt.Errorf("%s is not newer than the running version %s", version, a.Current))
 	}
 
@@ -454,7 +458,7 @@ func checkVersion(ctx context.Context, bin, tag string) error {
 	if err != nil {
 		return fmt.Errorf("run new binary: %w", err)
 	}
-	if !bytes.Contains(out, []byte(tag)) {
+	if !bytes.Contains(out, []byte(strings.TrimPrefix(tag, "v"))) {
 		return fmt.Errorf("new binary does not report version %s", tag)
 	}
 	return nil
