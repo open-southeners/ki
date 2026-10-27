@@ -454,7 +454,7 @@ Discovered during orchestrated work; routed here instead of fixed inline.
 
 ## The installer test does not cover the update helper units (M7)
 
-- **Where:** `packaging/test/install-test.sh` (lines ~48 and ~149).
+- **Where:** `packaging/test/install-test.sh` (lines ~49, ~154 and ~235).
 - **What:** the fake release archives only contain `ki-agent.service`, so installing
   `ki-agent-update.service`/`.path` and `systemctl enable --now ki-agent-update.path` are untested.
 - **Fix:** add both units to the fake archives and assert they are installed and enabled.

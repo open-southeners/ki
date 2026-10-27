@@ -17,6 +17,14 @@ projects, the command-line client, device-flow enrollment into a control
 plane, policy-checked deploys of compose projects (from the CLI, the API or
 push webhooks) and an HTTPS edge proxy that publishes services on domains exist.
 
+## The `ki` command
+
+The command-line tool is `ki`. The agent's commands live under `ki agent`
+(for example `ki agent status` or `sudo ki agent update`); `ki login` and
+Kiarga commands are coming. The old `ki-agent` command still works exactly like
+`ki agent`, but it is deprecated. Paths, the system user and the services keep
+the `ki-agent` name.
+
 ## Install
 
 On a Linux server (amd64 or arm64) with systemd:
@@ -28,7 +36,8 @@ curl -fsSL https://github.com/open-southeners/ki-agent/releases/latest/download/
 The script downloads the release archive for your architecture, verifies its
 sha256 checksum (always) and then installs:
 
-- the binary at `/usr/local/bin/ki-agent`;
+- the `ki` binary at `/usr/local/bin/ki`, plus `/usr/local/bin/ki-agent` as a
+  symlink to it (the deprecated old command name);
 - a `ki-agent` system user and group, and the `ki-agent.service` unit, which
   runs the agent as that user (with the `docker` group so it can reach the
   engine), enabled and started;
@@ -38,7 +47,7 @@ sha256 checksum (always) and then installs:
 |---|---|
 | `--version vX.Y.Z` | Install that release instead of the latest |
 | `--with-docker` | Install Docker Engine (via get.docker.com) if it or the Compose plugin is missing |
-| `--enroll [URL]` | Run `ki-agent enroll [URL]` once the service is up (see below) |
+| `--enroll [URL]` | Run `ki agent enroll [URL]` once the service is up (see below) |
 | `--no-panel` | Write `panel.enabled: false` into a newly created config, so the web panel is not served (see [Users, roles and tokens](#users-roles-and-tokens)) |
 | `--no-edge` | Write `edge.enabled: false` into a newly created config, so no reverse proxy is started (see [Exposing services](#exposing-services)) |
 | `--tunnel-token-file FILE` | Expose the server through a Cloudflare Tunnel: a new config gets `edge.mode: behind` and `tunnel.enabled: true`, and the token in `FILE` is stored once the service is up (see [Exposing a server through Cloudflare Tunnel](#exposing-a-server-through-cloudflare-tunnel)) |
@@ -57,7 +66,7 @@ installer also verifies that signature and refuses to continue when it fails;
 otherwise it says so and relies on the checksum alone.
 
 The CLI talks to the agent over a socket owned by the `ki-agent` group, so
-users who should run `ki-agent status` and friends must be in that group
+users who should run `ki agent status` and friends must be in that group
 (`sudo usermod -aG ki-agent USER`, then log in again) or use `sudo`.
 
 ### Installing a local build
@@ -81,6 +90,13 @@ installer verifies the sha256 checksum as usual. There is no cosign signature
 for a local build, so the installer must run on a machine without `cosign`
 installed (it would otherwise insist on the signature bundle).
 
+### Upgrading from 1.0.x
+
+Servers that updated themselves from 1.0.x got the new binary under the old
+`/usr/local/bin/ki-agent` name. Run `sudo ki-agent update` once (it works even
+when already up to date) or re-run the installer to add the `ki` command and
+switch the units to `ki agent run`.
+
 ## Updating
 
 The agent checks GitHub Releases for a newer version (first after a few
@@ -91,7 +107,7 @@ ways to install an update:
 - **Panel**: Admin, Updates. **Check now** looks immediately, the release notes
   are shown, and **Update now** installs. Only an admin signed in to the panel
   can do it.
-- **Command line**: `sudo ki-agent update` looks the release up on GitHub,
+- **Command line**: `sudo ki agent update` looks the release up on GitHub,
   shows the current and the new version with the notes, and asks for
   confirmation.
 
@@ -103,8 +119,8 @@ ways to install an update:
 
 The exit status is `0` on success or when already up to date, `1` on failure
 and `2` when the new version did not start and the update was rolled back.
-Without `sudo`, `ki-agent update` only prints what the running agent knows
-(`--check` makes it look now) and tells you to run `sudo ki-agent update`.
+Without `sudo`, `ki agent update` only prints what the running agent knows
+(`--check` makes it look now) and tells you to run `sudo ki agent update`.
 
 During an update a root helper downloads the release archive and its
 `checksums.txt`, verifies the release signature against the key built into the
@@ -128,7 +144,7 @@ because the agent itself (an unprivileged user) cannot replace its own binary or
 restart itself. `install.sh` enables the path unit; on a manual install, copy
 both files from `packaging/systemd/` to `/etc/systemd/system/` and run
 `systemctl enable --now ki-agent-update.path`. Without it the panel shows the
-update but asks you to use `sudo ki-agent update`.
+update but asks you to use `sudo ki agent update`.
 
 A control plane and API tokens can read the update status (`updates.status`) and
 ask for a check, but cannot install: `updates.apply` is accepted only from a
@@ -145,7 +161,7 @@ plugin (the image ships v5.1.0): older releases such as 2.40.3 ignore
 ## Build
 
 ```sh
-go build -o ki-agent ./cmd/ki-agent
+go build -o ki ./cmd/ki
 ```
 
 Stamp a release version with
@@ -159,7 +175,7 @@ minimal sign-in page.
 
 ```sh
 cd web && bun install --frozen-lockfile && bun run build   # writes internal/panel/dist
-cd .. && go build -o ki-agent ./cmd/ki-agent               # embeds it
+cd .. && go build -o ki ./cmd/ki               # embeds it
 ```
 
 For frontend work run the agent (the panel listens on `127.0.0.1:8091`) and
@@ -170,8 +186,8 @@ proxies `/rpc` and `/auth` to `127.0.0.1:8091`. `bun run typecheck` and
 ## Run
 
 ```sh
-./ki-agent run --config packaging/config.example.yaml
-./ki-agent version
+./ki agent run --config packaging/config.example.yaml
+./ki agent version
 ```
 
 The agent logs JSON to stderr and stops on SIGINT or SIGTERM. To install by hand
@@ -198,10 +214,10 @@ hour in memory (nothing is written to disk, so history starts empty after a
 restart).
 
 ```sh
-ki-agent stats                       # host summary plus the 10 busiest containers
-ki-agent stats --watch --interval 2s # live view (needs a few seconds for rates)
-ki-agent stats --json
-ki-agent containers stats --project app [--watch] [--json]
+ki agent stats                       # host summary plus the 10 busiest containers
+ki agent stats --watch --interval 2s # live view (needs a few seconds for rates)
+ki agent stats --json
+ki agent containers stats --project app [--watch] [--json]
 ```
 
 What is measured:
@@ -287,7 +303,7 @@ browser. The control plane must support the device-flow enrollment described in
 `-enroll`):
 
 ```sh
-ki-agent enroll https://cp.example.com
+ki agent enroll https://cp.example.com
 # Open https://cp.example.com/activate?user_code=ABCD-EFGH and confirm the code ABCD-EFGH
 ```
 
@@ -295,8 +311,8 @@ Open the printed address, check the code and approve; the agent stores the
 credentials and connects at once, without a restart. The URL may be omitted when
 the binary was built with a default. Ctrl-C cancels. If the agent is already
 enrolled the command stops with a hint; pass `--force` to enroll again.
-`ki-agent unenroll` (`--yes` skips the prompt) deletes the credentials and
-disconnects; `ki-agent status` shows whether the connection came from
+`ki agent unenroll` (`--yes` skips the prompt) deletes the credentials and
+disconnects; `ki agent status` shows whether the connection came from
 enrollment or from the config.
 
 Credentials live in `<data_dir>/control-plane.json` (mode 0600). While that file
@@ -340,7 +356,7 @@ A project is a Git repository with a Compose file that the agent keeps checked
 out under its data directory. Create one from a URL; the agent infers the rest:
 
 ```sh
-ki-agent projects create https://github.com/acme/app.git
+ki agent projects create https://github.com/acme/app.git
 ```
 
 The slug comes from the repository name (override with `--slug`), the
@@ -353,12 +369,12 @@ images without a repository, see
 
 **Private repositories** use one of two credentials:
 
-- **Deploy key (SSH URLs).** `ki-agent projects create git@github.com:acme/app.git`
+- **Deploy key (SSH URLs).** `ki agent projects create git@github.com:acme/app.git`
   makes the agent generate a key and print its public half. The project starts
   as `pending_access`; add the key to the repository as a read-only deploy key,
-  then run `ki-agent projects verify app` to clone it and mark it `ready`.
+  then run `ki agent projects verify app` to clone it and mark it `ready`.
 - **Access token (HTTPS URLs).** Pass it on standard input or from a file so it
-  never reaches the process list: `ki-agent projects create URL --token-stdin`
+  never reaches the process list: `ki agent projects create URL --token-stdin`
   or `--token-file PATH` (`--token-user` if the host wants a username other
   than `x-access-token`).
 
@@ -382,23 +398,23 @@ The same binary talks to a running agent over its Unix socket:
 
 | Command | Purpose |
 |---|---|
-| `ki-agent status` | Agent version and uptime, control-plane state, engine, project count |
-| `ki-agent projects create <git-url>` | Create a project (`--slug`, `--branch`/`--tags`, `--compose`, `--token-stdin`/`--token-file`, `--token-user`) |
-| `ki-agent projects create <slug> --compose-file <file>` | Create a [compose project](#compose-projects-images-built-in-ci) from a Compose file (`-` for stdin) |
-| `ki-agent projects create <slug> --image <ref>` | Create an [image project](#image-projects) (`--port`, `--domain`, `--path`, `--volume`, `--env`, `--service`) |
-| `ki-agent projects image set <slug> <tag>` | Release a new image tag (or `--image <ref>`) of a compose project; `--deploy` |
-| `ki-agent projects compose get\|set\|history <slug>` | Show, store (`--file`, `--note`, `--deploy`) or list versions of a compose project's file |
-| `ki-agent projects list` / `get <slug>` | Show projects |
-| `ki-agent projects verify <slug>` | Check access, clone or update the checkout |
-| `ki-agent projects update <slug>` | Change trigger, Compose file or credentials; `--rotate-webhook-secret`, `--rotate-deploy-key` |
-| `ki-agent projects delete <slug>` | Delete (`--volumes`, `--yes`) |
-| `ki-agent logs <container>` | Follow logs (`--tail`, `--since`, `--timestamps`) |
-| `ki-agent deploy --project <slug>` | Deploy and follow the log (`--ref`, `--detach`); exits non-zero if the deploy fails |
-| `ki-agent deploys list <slug>` / `get <id>` / `logs <id>` | Deploy history, one deploy, its log (`--limit`, `--follow`) |
-| `ki-agent projects env list <slug>` | List a project's variable names (never values) |
-| `ki-agent projects env set <slug> <NAME>` | Set a variable; value from `--value-stdin` or `--value-file` |
-| `ki-agent projects env import <slug> --file <dotenv>` | Set several variables from a dotenv file |
-| `ki-agent projects env unset <slug> <NAME>...` | Remove variables |
+| `ki agent status` | Agent version and uptime, control-plane state, engine, project count |
+| `ki agent projects create <git-url>` | Create a project (`--slug`, `--branch`/`--tags`, `--compose`, `--token-stdin`/`--token-file`, `--token-user`) |
+| `ki agent projects create <slug> --compose-file <file>` | Create a [compose project](#compose-projects-images-built-in-ci) from a Compose file (`-` for stdin) |
+| `ki agent projects create <slug> --image <ref>` | Create an [image project](#image-projects) (`--port`, `--domain`, `--path`, `--volume`, `--env`, `--service`) |
+| `ki agent projects image set <slug> <tag>` | Release a new image tag (or `--image <ref>`) of a compose project; `--deploy` |
+| `ki agent projects compose get\|set\|history <slug>` | Show, store (`--file`, `--note`, `--deploy`) or list versions of a compose project's file |
+| `ki agent projects list` / `get <slug>` | Show projects |
+| `ki agent projects verify <slug>` | Check access, clone or update the checkout |
+| `ki agent projects update <slug>` | Change trigger, Compose file or credentials; `--rotate-webhook-secret`, `--rotate-deploy-key` |
+| `ki agent projects delete <slug>` | Delete (`--volumes`, `--yes`) |
+| `ki agent logs <container>` | Follow logs (`--tail`, `--since`, `--timestamps`) |
+| `ki agent deploy --project <slug>` | Deploy and follow the log (`--ref`, `--detach`); exits non-zero if the deploy fails |
+| `ki agent deploys list <slug>` / `get <id>` / `logs <id>` | Deploy history, one deploy, its log (`--limit`, `--follow`) |
+| `ki agent projects env list <slug>` | List a project's variable names (never values) |
+| `ki agent projects env set <slug> <NAME>` | Set a variable; value from `--value-stdin` or `--value-file` |
+| `ki agent projects env import <slug> --file <dotenv>` | Set several variables from a dotenv file |
+| `ki agent projects env unset <slug> <NAME>...` | Remove variables |
 
 `--socket PATH` selects the socket (default: `KI_SOCKET_PATH`, then
 `socket.path` from the config file, then `/run/ki-agent/ki.sock`). Every client
@@ -419,7 +435,7 @@ add your user to the `ki-agent` group or use `sudo`.
 
 ### Deploying
 
-`ki-agent deploy --project app` checks out the project's trigger (the branch
+`ki agent deploy --project app` checks out the project's trigger (the branch
 head, or the newest matching tag), runs `docker compose` on it and waits until
 the services are running and healthy, streaming the log as it goes. `--ref`
 deploys another branch, tag or commit as long as it matches the project's
@@ -427,18 +443,18 @@ trigger; `--detach` returns at once. Only one deploy runs per project at a
 time, and a newer request replaces one that is still waiting. A failed deploy
 leaves the containers as they are; the reason (`policy_violation`,
 `build_failed`, `health_failed`, ...) is shown by the command and by
-`ki-agent deploys get <id>`.
+`ki agent deploys get <id>`.
 
-**Rolling back.** `ki-agent deploys rollback app` deploys the previous good
+**Rolling back.** `ki agent deploys rollback app` deploys the previous good
 version again: the commit of the newest successful deploy before the latest
 one (`--to <deploy-id>` picks a specific successful deploy; `--detach` returns
 at once). It is a normal deploy of that exact commit, so the safety policy,
 build and health checks all run again, and it is marked `rollback_of` in
 `deploys get`. A commit that was force-pushed away fails at the fetch stage.
 
-**Services.** `ki-agent services list app` shows each service with its state
+**Services.** `ki agent services list app` shows each service with its state
 (`running`, `partial`, `stopped`, `unhealthy`, `missing`), containers and
-health; `ki-agent services start|stop|restart app web` acts on every container
+health; `ki agent services start|stop|restart app web` acts on every container
 of a service.
 
 The Compose file is never run as written. The agent normalizes it, checks it
@@ -450,9 +466,9 @@ labels, so they show up in `containers.*` and are removed with the project.
 never shown again:
 
 ```sh
-printf %s "$SECRET" | ki-agent projects env set app API_KEY --value-stdin
-ki-agent projects env import app --file .env.production
-ki-agent projects env list app
+printf %s "$SECRET" | ki agent projects env set app API_KEY --value-stdin
+ki agent projects env import app --file .env.production
+ki agent projects env list app
 ```
 
 They are written to the checkout's `.env` at deploy time and are also used for
@@ -510,16 +526,16 @@ project has no webhook, trigger or credentials, and `projects verify` and
 
 ```sh
 # Create it from a file (the slug is required); this stores version 1
-ki-agent projects create demo --compose-file compose.yaml
-ki-agent deploy --project demo
+ki agent projects create demo --compose-file compose.yaml
+ki agent deploy --project demo
 
 # Store a new version and deploy it in one step
-ki-agent projects compose set demo --file compose.yaml --note "bump web to v2" --deploy
+ki agent projects compose set demo --file compose.yaml --note "bump web to v2" --deploy
 
 # Inspect and roll back
-ki-agent projects compose history demo
-ki-agent projects compose get demo --version 1
-ki-agent deploys rollback demo
+ki agent projects compose history demo
+ki agent projects compose get demo --version 1
+ki agent deploys rollback demo
 ```
 
 A file is checked when it is stored, not only when it is deployed: it must
@@ -530,12 +546,12 @@ or `policy_violation` with `build_not_allowed` for a `build:` section). Pin
 images by tag or digest (`image: ghcr.io/acme/web:1.4.2`); a deploy pulls them
 first, and anything that changes the running services must be a new version.
 Environment variables work as for git projects (`projects env set`) and are
-used for `${VAR}` interpolation. Deploys are `compose@v<N>` (`ki-agent deploy
+used for `${VAR}` interpolation. Deploys are `compose@v<N>` (`ki agent deploy
 --project demo --ref v2`), and `deploys rollback` re-deploys the previous
 version that ran successfully.
 
 **From CI.** Create an admin API token on the server
-(`ki-agent tokens create ci --role admin --expires-in 2160h`; storing a compose
+(`ki agent tokens create ci --role admin --expires-in 2160h`; storing a compose
 version needs the admin role) and keep it as a secret. The RPC API takes the
 same JSON as above over the WebSocket (see [Protocol](#protocol)); the token
 works on the loopback listener, and through the edge when `api.public_tokens`
@@ -560,7 +576,7 @@ Compose file and deploys it:
 
 The reply carries the queued `deploy`; the step fails when the file is
 rejected (`error.data` has the reason and violations). Follow the result with
-`deploys.get`, or `ki-agent deploys get <id>` on the server.
+`deploys.get`, or `ki agent deploys get <id>` on the server.
 
 #### Image projects
 
@@ -570,10 +586,10 @@ stores it as version 1 and runs it like any compose project (policy, history,
 rollback, environment variables).
 
 ```sh
-ki-agent projects create demo --image registry.example.com/team/app:1.4.2 \
+ki agent projects create demo --image registry.example.com/team/app:1.4.2 \
   --port 8080 --domain demo.example.com --volume data:/app/data --env GREETING=hi
-ki-agent projects compose get demo        # the generated file
-ki-agent deploy --project demo
+ki agent projects compose get demo        # the generated file
+ki agent deploy --project demo
 ```
 
 ```yaml
@@ -608,9 +624,9 @@ To release, change the tag; this works on any compose project and keeps the
 rest of the file:
 
 ```sh
-ki-agent projects image set demo 1.4.3 --deploy
-ki-agent projects image set demo --image registry.example.com/team/app:1.4.3   # full reference
-ki-agent deploys rollback demo                                                  # back to the previous version
+ki agent projects image set demo 1.4.3 --deploy
+ki agent projects image set demo --image registry.example.com/team/app:1.4.3   # full reference
+ki agent deploys rollback demo                                                  # back to the previous version
 ```
 
 **From CI.** The pipeline only has to send the new tag; it does not need the
@@ -646,16 +662,16 @@ plane act as admin. The full method-to-role table is in
 [`api/openrpc.json`](api/openrpc.json).
 
 ```sh
-ki-agent panel setup                       # first admin: prints a one-time link (the installer runs this)
-ki-agent users create bob --role operator  # prints bob's one-time setup link
-ki-agent users list
-ki-agent users update bob --role viewer    # or --disable / --enable
-ki-agent users reset bob                   # lost password or authenticator: new link
-ki-agent users delete bob
-ki-agent tokens create ci --role operator --expires-in 720h   # shown once
-ki-agent tokens list
-ki-agent tokens revoke ci
-ki-agent audit --limit 50                  # who did what
+ki agent panel setup                       # first admin: prints a one-time link (the installer runs this)
+ki agent users create bob --role operator  # prints bob's one-time setup link
+ki agent users list
+ki agent users update bob --role viewer    # or --disable / --enable
+ki agent users reset bob                   # lost password or authenticator: new link
+ki agent users delete bob
+ki agent tokens create ci --role operator --expires-in 720h   # shown once
+ki agent tokens list
+ki agent tokens revoke ci
+ki agent audit --limit 50                  # who did what
 ```
 
 Open the link in a browser to choose a password and enrol an authenticator app;
@@ -663,7 +679,7 @@ links are valid for 30 minutes and work once. The panel is served at `/` on the
 edge's hostnames and IP (HTTPS) and at `http://127.0.0.1:8091/` on the server
 itself. Its session cookie is `Secure`, so it needs HTTPS or `localhost`.
 Disable the panel with `panel.enabled: false`, `KI_PANEL_ENABLED=false`,
-`ki-agent run --no-panel` or `install.sh --no-panel`; the API and tokens keep
+`ki agent run --no-panel` or `install.sh --no-panel`; the API and tokens keep
 working on `127.0.0.1:8091`.
 
 API tokens authenticate WebSocket clients on `api.listen`. Through the edge they
@@ -677,13 +693,13 @@ compare in the browser.
 were removed before the first release. Replace `websocket.listen` with
 `api.listen` (loopback only, default `127.0.0.1:8091`), the heartbeat keys with
 `api.heartbeat_interval` / `api.heartbeat_timeout`, `KI_WEBSOCKET_*` with
-`KI_API_*`, and create tokens with `ki-agent tokens create` instead of a token
+`KI_API_*`, and create tokens with `ki agent tokens create` instead of a token
 file. The agent refuses to start while a `websocket:` key remains.
 
 ## Web panel
 
 Sign in at the panel (`https://<your host>/`, or `http://127.0.0.1:8091/` on the
-server) after following the setup link from `ki-agent panel setup`. It follows
+server) after following the setup link from `ki agent panel setup`. It follows
 the system light or dark theme, shows the connection state in the header and
 hides the actions your role does not allow.
 
@@ -722,8 +738,8 @@ services:
 or from the server, which overrides the labels of that service:
 
 ```sh
-ki-agent projects expose app web --port 80 --domain app.example.com
-ki-agent projects unexpose app web
+ki agent projects expose app web --port 80 --domain app.example.com
+ki agent projects unexpose app web
 ```
 
 A domain belongs to one project and service on the server; a second project
@@ -742,7 +758,7 @@ edge:
   webhooks_port: 8090  # loopback port of the webhook listener
 ```
 
-`ki-agent edge status` shows the proxy state, ports, server hostnames, routes
+`ki agent edge status` shows the proxy state, ports, server hostnames, routes
 and certificates. Requests to the bare IP (or an unknown host) get a persistent
 **self-signed** certificate; the same command prints its SHA-256 fingerprint
 so you can compare it with what your browser or webhook sender shows before
@@ -755,7 +771,7 @@ certificate for the server's hostname with `edge.csr` and
 
 ## AWS
 
-`ki-agent aws status` (and the `aws.status` method, and the Overview page of the
+`ki agent aws status` (and the `aws.status` method, and the Overview page of the
 web panel) tells whether the server is an EC2 instance and which AWS agents run
 on it:
 
@@ -802,17 +818,17 @@ to the edge in behind mode. No inbound port needs to be open.
    argument, so it does not reach the process list or shell history):
 
    ```sh
-   ki-agent tunnel configure --token-stdin      # paste the token, Ctrl-D
-   ki-agent tunnel configure --token-file /root/tunnel.token
-   ki-agent tunnel status
+   ki agent tunnel configure --token-stdin      # paste the token, Ctrl-D
+   ki agent tunnel configure --token-file /root/tunnel.token
+   ki agent tunnel status
    ```
 
-`ki-agent tunnel status` (also on the Overview and Edge pages of the web panel)
+`ki agent tunnel status` (also on the Overview and Edge pages of the web panel)
 shows the state: `unconfigured` (enabled, no token yet), `starting`,
 `connected` (with the number of active connections, from the connector's
 `/ready` endpoint on `127.0.0.1:tunnel.metrics_port`, default 20241),
 `disconnected` or `error`. It warns when the edge is not in behind mode.
-`ki-agent tunnel remove` deletes the token and the container. The installer can
+`ki agent tunnel remove` deletes the token and the container. The installer can
 do steps 2 and 3 on a fresh install with `--tunnel-token-file FILE`.
 
 The token is stored in a root-only file under `<data_dir>/tunnel/secret` and is
@@ -847,12 +863,12 @@ domains to it. Sites move one at a time.
 2. Add `edge.domain` (if set) as a site on the existing web server with its own
    certificate, and make it forward as in the next step.
 3. For each site you move, expose it from a project (`ki.expose.*` labels or
-   `ki-agent projects expose`), deploy it, then print the block to add:
+   `ki agent projects expose`), deploy it, then print the block to add:
 
    ```sh
-   ki-agent edge proxy-config                         # nginx, every exposed domain
-   ki-agent edge proxy-config --domain app.example.com
-   ki-agent edge proxy-config --format caddy
+   ki agent edge proxy-config                         # nginx, every exposed domain
+   ki agent edge proxy-config --domain app.example.com
+   ki agent edge proxy-config --format caddy
    ```
 
    The output proxies to the behind listener, preserving `Host`,
@@ -868,7 +884,7 @@ domains to it. Sites move one at a time.
 
 In behind mode the edge requests no ACME certificates, does not redirect to
 HTTPS and does not publish bare-IP routes; the web server in front decides what
-reaches the agent. `ki-agent edge status` and the Edge page show the mode and
+reaches the agent. `ki agent edge status` and the Edge page show the mode and
 the listen address.
 
 ## Bring your own certificate
@@ -878,9 +894,9 @@ wildcard) are served with it instead of ACME. Import it over the local socket,
 as a user in the `ki-agent` group or with sudo:
 
 ```sh
-ki-agent edge certificate import --cert fullchain.pem --key privkey.pem
-ki-agent edge certificate import --cert fullchain.pem --key privkey.pem --server
-ki-agent edge certificate remove <id>          # id as shown by `edge status`
+ki agent edge certificate import --cert fullchain.pem --key privkey.pem
+ki agent edge certificate import --cert fullchain.pem --key privkey.pem --server
+ki agent edge certificate remove <id>          # id as shown by `edge status`
 ```
 
 The key must match the leaf, and the leaf must be valid for at least 24 more

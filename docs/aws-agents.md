@@ -1,6 +1,6 @@
 # AWS agents on EC2 servers
 
-What `ki-agent aws status` / `aws.status` reports about AWS-related software on
+What `ki agent aws status` / `aws.status` reports about AWS-related software on
 an instance, what it deliberately does not, and the findings behind those
 choices. These are generic observations from Ubuntu servers on EC2; check your
 own image.

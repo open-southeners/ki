@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`ki` command**: the CLI is now `ki`, with the agent's commands under `ki agent` (for example `ki agent projects list` and `sudo ki agent update`), as groundwork for upcoming Kiarga commands. Installs place `/usr/local/bin/ki` with `ki-agent` as a symlink to it, and the services run `ki agent run`. If you self-updated from 1.0.x, run `sudo ki-agent update` once (or re-run the installer) to add `ki`.
+
+### Deprecated
+
+- The `ki-agent` command name still works exactly like `ki agent` throughout 1.x, but `ki` is the name to use going forward.
+
 ## [1.0.2] - 2026-10-27
 
 ### Fixed

@@ -76,7 +76,7 @@ handlers:
   edge.
 
 A bearer token presented where tokens are not accepted is refused with 401
-rather than falling back to a cookie. With `panel.enabled: false` (or `ki-agent
+rather than falling back to a cookie. With `panel.enabled: false` (or `ki agent
 run --no-panel`) `/auth/*` and `/` answer 404, the edge routes neither, and
 `/rpc` keeps serving tokens on the direct listener (and through the edge when
 `api.public_tokens` is set).
@@ -682,7 +682,7 @@ ECDSA P-256 certificate (CN `ki-agent`, valid 10 years, SANs: the hostname and
 the non-loopback interface addresses at creation) generated once into
 `<data_dir>/edge/` and never regenerated while its files exist. Its SHA-256
 fingerprint and expiry are in `edge.status` (`self_signed`) and
-`ki-agent edge status`, so an operator can pin or check it.
+`ki agent edge status`, so an operator can pin or check it.
 
 ### Edge methods
 
@@ -751,7 +751,7 @@ requests no ACME certificates and does no HTTP-to-HTTPS redirect. It trusts
 `X-Forwarded-*` from loopback only. Server routes (panel, hooks, RPC) are served
 only for the server hostnames; the bare-IP routes are not created, since the
 front web server decides what reaches the agent. `edge.status` reports
-`mode: "behind"` and `listen`. `ki-agent edge proxy-config` prints the front
+`mode: "behind"` and `listen`. `ki agent edge proxy-config` prints the front
 server's configuration for the domains to forward.
 
 ### Server hostnames
@@ -828,11 +828,11 @@ install. The call is recorded in the audit log.
 Enrollment connects an agent to a control plane without hand-editing its
 config or copying a token. It is the OAuth 2.0 Device Authorization Grant
 ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)) with a discovery document
-and one extra response field. An operator runs `ki-agent enroll <base-url>` on
+and one extra response field. An operator runs `ki agent enroll <base-url>` on
 the machine, approves a short code in a browser, and the agent stores the
 credentials and starts its outbound connection. A control plane implements the
 server side described here; [`examples/control-plane`](../examples/control-plane)
-does so with `-enroll`. `B` below is the base URL given to `ki-agent enroll`.
+does so with `-enroll`. `B` below is the base URL given to `ki agent enroll`.
 
 ### Flow
 
@@ -911,7 +911,7 @@ stored.
 - When that file exists it **replaces** `control_plane.url` and
   `control_plane.token_file` from the config; the other `control_plane.*`
   settings (CA file, heartbeat, backoff) still apply. The agent logs which
-  source it uses at start. `ki-agent unenroll` deletes the file and falls back
+  source it uses at start. `ki agent unenroll` deletes the file and falls back
   to the config's control plane, if any.
 
 ### Local enrollment methods
@@ -919,7 +919,7 @@ stored.
 Capability `enrollment`. These methods control the agent itself, so they are
 **local-only**: any transport other than the Unix socket (HTTP listeners,
 outbound connection) is refused with `-32001` ("only available on the local
-socket"). This is what `ki-agent enroll` and `unenroll` use.
+socket"). This is what `ki agent enroll` and `unenroll` use.
 
 | Method | Params | Result |
 |---|---|---|
