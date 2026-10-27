@@ -5,7 +5,7 @@ name: Release
 # the GitHub release with the matching CHANGELOG.md section as its notes (tags
 # with a suffix are marked pre-release), and `build` runs GoReleaser, which
 # builds, signs and uploads the assets to that release without touching its
-# notes.
+# notes. `announce` then posts stable releases to the Telegram channel.
 on:
   push:
     tags:
@@ -83,3 +83,26 @@ jobs:
           KI_ENROLL_URL: ${{ vars.KI_ENROLL_URL }}
           # Private ed25519 seed the updater's release signature is made with.
           KI_RELEASE_SIGNING_KEY: ${{ secrets.KI_RELEASE_SIGNING_KEY }}
+
+  # Posts the release to the Open Southeners Telegram channel once its assets
+  # are uploaded. Stable tags only. Without the TELEGRAM_* secrets (org-level)
+  # the shared workflow skips the announcement instead of failing.
+  announce:
+    name: Announce on Telegram
+    needs: build
+    if: ${{ !contains(github.ref_name, '-') }}
+    permissions:
+      contents: read
+    uses: Pepebits/release-announce/.github/workflows/announce.yml@995de24932883caf9ea520d1d9c51f1737ac4e7b # v1
+    with:
+      tag: ${{ github.ref_name }}
+      notes_source: changelog
+      banner_url: https://opensoutheners.com/gh_card/{repo}
+      install_title: 🐧 Install on a Linux server
+      install_command: curl -fsSL https://github.com/open-southeners/ki/releases/download/{tag}/install.sh | sudo sh -s -- --version {tag}
+      buttons: >-
+        [{"text": "📝 Notes", "url": "{repo_url}/releases/tag/{tag}"},
+         {"text": "🍺 Homebrew", "url": "https://github.com/open-southeners/homebrew-tap"}]
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
