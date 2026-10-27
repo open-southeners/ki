@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 // subRouter exposes a handler that opens a subscription and hands it to the

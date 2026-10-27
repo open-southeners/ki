@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // fakeRuntime is a scriptable StatsRuntime.

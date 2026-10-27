@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/open-southeners/ki-agent/api"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki/api"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/version"
 )
 
 // Method and notification names.

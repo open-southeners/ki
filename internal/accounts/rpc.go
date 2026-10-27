@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/auth"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/auth"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // mapErr converts service errors to RPC errors; unknown errors pass through

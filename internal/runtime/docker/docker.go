@@ -19,7 +19,7 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // DefaultHost is the Docker endpoint used when none is configured.

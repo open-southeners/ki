@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/policy"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/policy"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // Deploy statuses.

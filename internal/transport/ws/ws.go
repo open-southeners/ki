@@ -13,7 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 // Defaults applied for zero Options fields.

@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/open-southeners/ki-agent/internal/config"
+	"github.com/open-southeners/ki/internal/config"
 )
 
 // setupBase returns the function the accounts service uses to build setup

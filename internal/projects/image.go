@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
+	"github.com/open-southeners/ki/internal/compose"
 )
 
 // Image project limits.

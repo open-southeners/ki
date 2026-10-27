@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/config"
+	"github.com/open-southeners/ki/internal/config"
 )
 
 func TestSetupBase(t *testing.T) {

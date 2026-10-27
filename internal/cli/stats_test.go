@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const hostSampleJSON = `{"time":"2026-01-02T03:04:05Z","cpu":{"percent":12.5,"cores":4},

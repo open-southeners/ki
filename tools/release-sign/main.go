@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/open-southeners/ki-agent/internal/update"
+	"github.com/open-southeners/ki/internal/update"
 )
 
 const keyEnv = "KI_RELEASE_SIGNING_KEY"

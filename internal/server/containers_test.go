@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/containers"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/transport/unixsock"
+	"github.com/open-southeners/ki/internal/containers"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/transport/unixsock"
 )
 
 // stubRuntime serves one managed container "web" with two log lines, then ends

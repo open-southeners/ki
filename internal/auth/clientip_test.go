@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 func TestClientIP(t *testing.T) {

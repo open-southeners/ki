@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/runtime/docker"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/runtime/docker"
 )
 
 const healthyCompose = `services:

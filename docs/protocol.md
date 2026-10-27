@@ -805,7 +805,7 @@ is done by a root helper, never by the agent process.
 {"current": "v0.3.0", "channel": "stable", "check_enabled": true,
  "checked_at": "2026-10-27T10:00:00Z", "check_error": null,
  "latest": {"tag": "v0.4.0", "name": "v0.4.0", "published_at": "2026-10-26T09:00:00Z",
-            "url": "https://github.com/open-southeners/ki-agent/releases/tag/v0.4.0",
+            "url": "https://github.com/open-southeners/ki/releases/tag/v0.4.0",
             "notes": "markdown", "prerelease": false},
  "update_available": true, "apply_supported": true, "state": "idle", "last_result": null}
 ```

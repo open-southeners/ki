@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/rpc/rpctest"
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc/rpctest"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // liveReader returns ever-growing counters for a two-core host.

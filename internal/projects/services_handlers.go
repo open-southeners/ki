@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 func (h *Handlers) services(ctx context.Context, _ *rpc.Peer, params json.RawMessage) (any, error) {

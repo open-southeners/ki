@@ -28,7 +28,7 @@ const (
 	// DefaultAPIBaseURL is the GitHub REST API root.
 	DefaultAPIBaseURL = "https://api.github.com"
 
-	repoPath = "/repos/open-southeners/ki-agent"
+	repoPath = "/repos/open-southeners/ki"
 
 	// MaxNotesSize caps the release notes kept and shown.
 	MaxNotesSize = 64 << 10

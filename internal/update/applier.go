@@ -26,12 +26,12 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/open-southeners/ki-agent/internal/client"
+	"github.com/open-southeners/ki/internal/client"
 )
 
 const (
 	// DefaultBaseURL is where release assets are downloaded from.
-	DefaultBaseURL = "https://github.com/open-southeners/ki-agent/releases/download"
+	DefaultBaseURL = "https://github.com/open-southeners/ki/releases/download"
 	// DefaultBackupDir holds the previous binary and database backups. It is
 	// root-only.
 	DefaultBackupDir = "/var/lib/ki-agent-update"

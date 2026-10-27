@@ -20,7 +20,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/edge/certs"
 )
 
 // DefaultImage is the pinned proxy image used when edge.image is empty.

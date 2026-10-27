@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/projects"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/projects"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // pushCommit adds a commit to main and pushes it, returning its sha.

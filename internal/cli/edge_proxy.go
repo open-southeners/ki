@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/edge/certs"
 )
 
 func newEdgeProxyConfigCmd(f *flags) *cobra.Command {

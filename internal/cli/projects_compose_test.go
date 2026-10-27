@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const composeProjectJSON = `{"slug":"site","source":"compose","compose_version":3,"status":"ready",

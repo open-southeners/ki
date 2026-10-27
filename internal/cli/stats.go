@@ -17,7 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-southeners/ki-agent/internal/client"
+	"github.com/open-southeners/ki/internal/client"
 )
 
 // Method and notification names of the stats streams.

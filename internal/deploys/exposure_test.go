@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/projects"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/projects"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 const exposedModel = `{"services":{"web":{"image":"example/web","labels":{"ki.expose.port":"8080","ki.expose.domains":"App.Example.com,www.example.com","ki.expose.path":"/x"}}}}`

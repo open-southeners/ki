@@ -20,7 +20,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/edge/certs"
 )
 
 // DefaultPath is where the config file is read from when --config is not given.

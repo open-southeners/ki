@@ -30,7 +30,7 @@ the `ki-agent` name.
 On a Linux server (amd64 or arm64) with systemd:
 
 ```sh
-curl -fsSL https://github.com/open-southeners/ki-agent/releases/latest/download/install.sh | sudo sh
+curl -fsSL https://github.com/open-southeners/ki/releases/latest/download/install.sh | sudo sh
 ```
 
 The script downloads the release archive for your architecture, verifies its
@@ -165,7 +165,7 @@ go build -o ki ./cmd/ki
 ```
 
 Stamp a release version with
-`-ldflags "-X github.com/open-southeners/ki-agent/internal/version.Version=1.2.3"`.
+`-ldflags "-X github.com/open-southeners/ki/internal/version.Version=1.2.3"`.
 
 ### Web panel
 

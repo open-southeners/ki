@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 // MaxLine is the maximum accepted message size in bytes (excluding the newline).

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/git"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/git"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // Environment variable limits.

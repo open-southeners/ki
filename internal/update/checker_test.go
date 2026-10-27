@@ -53,7 +53,7 @@ func writeJSON(w http.ResponseWriter, etag string, v any) {
 func relJSON(tag string, draft, pre bool, body string) map[string]any {
 	return map[string]any{
 		"tag_name": tag, "name": "Release " + tag, "body": body, "draft": draft,
-		"prerelease": pre, "html_url": "https://github.com/open-southeners/ki-agent/releases/tag/" + tag,
+		"prerelease": pre, "html_url": "https://github.com/open-southeners/ki/releases/tag/" + tag,
 		"published_at": "2026-10-01T12:00:00Z",
 	}
 }
@@ -96,7 +96,7 @@ func newTestChecker(t *testing.T, gh *fakeGitHub, mut func(*CheckerOptions)) (*C
 
 func TestCheckerStable(t *testing.T) {
 	gh := &fakeGitHub{handler: func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/open-southeners/ki-agent/releases/latest" {
+		if r.URL.Path != "/repos/open-southeners/ki/releases/latest" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		writeJSON(w, `"e1"`, relJSON("v0.4.0", false, false, "## Notes"))
@@ -120,7 +120,7 @@ func TestCheckerStable(t *testing.T) {
 
 func TestCheckerPrereleaseSkipsDraftsAndMalformed(t *testing.T) {
 	gh := &fakeGitHub{handler: func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/open-southeners/ki-agent/releases" || r.URL.Query().Get("per_page") != "10" {
+		if r.URL.Path != "/repos/open-southeners/ki/releases" || r.URL.Query().Get("per_page") != "10" {
 			t.Errorf("url = %s", r.URL)
 		}
 		writeJSON(w, "", []any{

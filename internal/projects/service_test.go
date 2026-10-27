@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/git"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/secret"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/git"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/secret"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 var gitEnv = []string{

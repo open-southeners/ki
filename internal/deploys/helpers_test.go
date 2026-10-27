@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/git"
-	"github.com/open-southeners/ki-agent/internal/projects"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/secret"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/git"
+	"github.com/open-southeners/ki/internal/projects"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/secret"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 var gitEnv = []string{

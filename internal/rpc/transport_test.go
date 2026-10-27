@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/rpc/rpctest"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc/rpctest"
 )
 
 // serveOn returns a client calling a router served over transport ("" = unset).

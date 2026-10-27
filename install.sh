@@ -1,7 +1,7 @@
 #!/bin/sh
 # ki-agent installer.
 #
-#   curl -fsSL https://github.com/open-southeners/ki-agent/releases/latest/download/install.sh | sudo sh
+#   curl -fsSL https://github.com/open-southeners/ki/releases/latest/download/install.sh | sudo sh
 #   curl -fsSL .../install.sh | sudo sh -s -- --version v1.2.3 --enroll
 #
 # Downloads the release archive for this machine, verifies its sha256 checksum
@@ -14,8 +14,8 @@
 
 set -eu
 
-DEFAULT_BASE_URL="https://github.com/open-southeners/ki-agent/releases"
-SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki-agent/\.github/workflows/release\.yml@refs/tags/v'
+DEFAULT_BASE_URL="https://github.com/open-southeners/ki/releases"
+SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki/\.github/workflows/release\.yml@refs/tags/v'
 SIGN_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 # Current releases ship one binary, ki; /usr/local/bin/ki-agent is a symlink to

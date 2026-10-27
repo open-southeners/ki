@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/containers"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/runtime/docker"
+	"github.com/open-southeners/ki/internal/containers"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime/docker"
 )
 
 // engineAPI is a minimal raw Docker Engine API client for test setup, so that

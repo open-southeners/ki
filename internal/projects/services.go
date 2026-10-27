@@ -10,7 +10,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // Service states.

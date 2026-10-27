@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/agent"
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/controlplane"
-	"github.com/open-southeners/ki-agent/internal/enroll"
-	"github.com/open-southeners/ki-agent/internal/enrollment"
-	"github.com/open-southeners/ki-agent/internal/enrollment/enrolltest"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/server"
-	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki/internal/agent"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/controlplane"
+	"github.com/open-southeners/ki/internal/enroll"
+	"github.com/open-southeners/ki/internal/enrollment"
+	"github.com/open-southeners/ki/internal/enrollment/enrolltest"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/server"
+	"github.com/open-southeners/ki/internal/version"
 )
 
 // enrollAgent is the real server, control-plane manager and enrollment

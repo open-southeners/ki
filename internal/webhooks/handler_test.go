@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 var secret = []byte("s3cret-value")

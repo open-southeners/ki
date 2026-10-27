@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/transport/ws"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/transport/ws"
 )
 
 // Fixed secrets handed out by the fake, so tests can assert they never leak.

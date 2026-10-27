@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/git"
-	"github.com/open-southeners/ki-agent/internal/projects"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/store"
-	"github.com/open-southeners/ki-agent/internal/webhooks"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/git"
+	"github.com/open-southeners/ki/internal/projects"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/store"
+	"github.com/open-southeners/ki/internal/webhooks"
 )
 
 // Defaults for Options fields left zero.

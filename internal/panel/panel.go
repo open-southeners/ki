@@ -21,9 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/accounts"
-	"github.com/open-southeners/ki-agent/internal/auth"
-	"github.com/open-southeners/ki-agent/internal/server"
+	"github.com/open-southeners/ki/internal/accounts"
+	"github.com/open-southeners/ki/internal/auth"
+	"github.com/open-southeners/ki/internal/server"
 )
 
 // staticFS is the minimal built-in page, served when the web app is not built.

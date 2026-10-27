@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // Subscriber interval bounds: a subscription cannot make a sampler run faster

@@ -16,12 +16,12 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/runtime/docker"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime/docker"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // TestIntegrationEdge runs the real proxy on the test engine. It needs:

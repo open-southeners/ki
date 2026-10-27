@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/agent"
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/server"
+	"github.com/open-southeners/ki/internal/agent"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/server"
 )
 
 const projectJSON = `{"slug":"app","repo_url":"https://github.com/acme/app.git","trigger":{"branch":"main"},

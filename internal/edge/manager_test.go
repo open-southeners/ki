@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 type fakeCompose struct {

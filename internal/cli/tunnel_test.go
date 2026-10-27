@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const tunnelCLIToken = "eyJhIjoiQ0xJU0VDUkVUIiwidCI6IngifQ=="

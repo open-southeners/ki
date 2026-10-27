@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const behindStatusJSON = `{"enabled":true,"state":"running","image":"traefik:v3.1","http_port":80,"https_port":443,

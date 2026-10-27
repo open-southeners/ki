@@ -1,4 +1,4 @@
-module github.com/open-southeners/ki-agent
+module github.com/open-southeners/ki
 
 go 1.26.1
 

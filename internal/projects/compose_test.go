@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/policy"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/policy"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 const goodCompose = "services:\n  web:\n    image: registry.example/app:1\n"

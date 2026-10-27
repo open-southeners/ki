@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // truncatedLine is the one agent line that marks the end of the stored log.

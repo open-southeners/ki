@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 func TestStatsFixtures(t *testing.T) {

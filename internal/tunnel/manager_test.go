@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 const testToken = "eyJhIjoiU0VDUkVUU0VDUkVUIiwidCI6InRva2VuLXRva2VuIn0="

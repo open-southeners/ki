@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // svcRuntime is a fake engine with a fixed set of containers.

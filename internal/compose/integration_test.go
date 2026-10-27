@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/policy"
+	"github.com/open-southeners/ki/internal/policy"
 )
 
 // noDaemon makes any accidental engine access fail: `compose config` never

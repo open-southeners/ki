@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 var versionPrefix = regexp.MustCompile(`^/v[0-9.]+`)

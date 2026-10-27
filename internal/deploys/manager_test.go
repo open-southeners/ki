@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 func TestSuccessfulDeploy(t *testing.T) {

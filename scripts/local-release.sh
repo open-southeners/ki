@@ -18,7 +18,7 @@ version=${1:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 out=${2:-"$root/dist-local"}
 version=${version#v}
 commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)
-pkg=github.com/open-southeners/ki-agent/internal/version
+pkg=github.com/open-southeners/ki/internal/version
 
 command -v go >/dev/null 2>&1 || {
 	echo "local-release: go is required" >&2

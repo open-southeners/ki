@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/api"
-	"github.com/open-southeners/ki-agent/internal/agent"
-	"github.com/open-southeners/ki-agent/internal/auth"
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/transport/unixsock"
-	"github.com/open-southeners/ki-agent/internal/transport/ws"
+	"github.com/open-southeners/ki/api"
+	"github.com/open-southeners/ki/internal/agent"
+	"github.com/open-southeners/ki/internal/auth"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/transport/unixsock"
+	"github.com/open-southeners/ki/internal/transport/ws"
 )
 
 const testToken = "s3cret-token"

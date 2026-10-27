@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/update"
+	"github.com/open-southeners/ki/internal/update"
 )
 
 func TestKeygenModeAndNoOverwrite(t *testing.T) {

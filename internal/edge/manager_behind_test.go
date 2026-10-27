@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 func TestBehindModeReconcileAndStatus(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // Exposure limits.

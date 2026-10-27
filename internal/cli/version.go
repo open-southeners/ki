@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki/internal/version"
 )
 
 func newVersionCmd() *cobra.Command {

@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/open-southeners/ki-agent/internal/cli"
+	"github.com/open-southeners/ki/internal/cli"
 )
 
 func main() {

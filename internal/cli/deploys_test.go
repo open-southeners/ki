@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const deployQueuedJSON = `{"id":42,"project":"app","ref":"refs/heads/main","commit":"","source":"cli",

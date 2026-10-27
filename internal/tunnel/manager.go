@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // Tunnel states reported in [Status].

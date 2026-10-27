@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // pruneEngine is a fake Engine API recording requests for PruneProject tests.

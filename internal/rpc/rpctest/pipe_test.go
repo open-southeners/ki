@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc/rpctest"
+	"github.com/open-southeners/ki/internal/rpc/rpctest"
 )
 
 func TestPipe(t *testing.T) {

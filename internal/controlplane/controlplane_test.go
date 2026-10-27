@@ -18,12 +18,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/api"
-	"github.com/open-southeners/ki-agent/internal/agent"
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/server"
-	"github.com/open-southeners/ki-agent/internal/transport/ws"
+	"github.com/open-southeners/ki/api"
+	"github.com/open-southeners/ki/internal/agent"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/server"
+	"github.com/open-southeners/ki/internal/transport/ws"
 )
 
 const testToken = "cp-secret-token"

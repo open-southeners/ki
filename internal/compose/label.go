@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // Label adds the ki.* labels to a normalized compose model: ki.managed,

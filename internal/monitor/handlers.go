@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/runtime"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/runtime"
 )
 
 // Method and notification names.

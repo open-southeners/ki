@@ -17,9 +17,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/update"
-	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/update"
+	"github.com/open-southeners/ki/internal/version"
 )
 
 // Exit codes of `ki agent update` beyond the generic 1.

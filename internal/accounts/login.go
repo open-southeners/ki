@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/auth"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/auth"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // LoginRequest carries the credentials of a panel login.

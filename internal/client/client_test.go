@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/transport/unixsock"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/transport/unixsock"
 )
 
 // testServer serves router on a temp socket, one peer per connection.

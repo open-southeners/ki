@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/api"
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/api"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 type spec struct {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const awsStatusJSON = `{"ec2":{"detected":true,"instance_id":"i-0123456789abcdef0","instance_type":"t3.small",

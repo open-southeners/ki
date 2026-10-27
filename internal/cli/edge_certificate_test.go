@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/edge/certs"
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/edge/certs"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 func TestEdgeCertificateImportRemove(t *testing.T) {

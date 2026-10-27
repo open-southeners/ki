@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/version"
 )
 
 // flags holds the persistent flags shared by all subcommands.

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/git"
-	"github.com/open-southeners/ki-agent/internal/projects"
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/secret"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/git"
+	"github.com/open-southeners/ki/internal/projects"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/secret"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // pruneRuntime counts PruneProject calls; other methods panic if reached.

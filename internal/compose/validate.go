@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/open-southeners/ki-agent/internal/policy"
+	"github.com/open-southeners/ki/internal/policy"
 )
 
 // MaxComposeSize is the largest compose file a compose project may store.

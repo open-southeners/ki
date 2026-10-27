@@ -14,9 +14,9 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/open-southeners/ki-agent/internal/client"
-	"github.com/open-southeners/ki-agent/internal/config"
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/client"
+	"github.com/open-southeners/ki/internal/config"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 // resolveSocket picks the agent socket: the --socket flag, then

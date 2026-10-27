@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 // clientIPKey is the per-peer state key under which the client IP is stored.

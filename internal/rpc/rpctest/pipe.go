@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 const pipeBuffer = 64

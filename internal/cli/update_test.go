@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
-	"github.com/open-southeners/ki-agent/internal/update"
-	"github.com/open-southeners/ki-agent/internal/version"
+	"github.com/open-southeners/ki/internal/rpc"
+	"github.com/open-southeners/ki/internal/update"
+	"github.com/open-southeners/ki/internal/version"
 )
 
 const updStatusJSON = `{"current":"v0.3.0","channel":"stable","check_enabled":true,"checked_at":"2026-10-27T10:00:00Z",

@@ -17,8 +17,8 @@ ARG VERSION=dev
 ARG COMMIT=dev
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w \
-      -X github.com/open-southeners/ki-agent/internal/version.Version=${VERSION} \
-      -X github.com/open-southeners/ki-agent/internal/version.Commit=${COMMIT}" \
+      -X github.com/open-southeners/ki/internal/version.Version=${VERSION} \
+      -X github.com/open-southeners/ki/internal/version.Commit=${COMMIT}" \
     -o /out/ki ./cmd/ki
 
 FROM debian:bookworm-slim

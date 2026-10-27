@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/open-southeners/ki-agent/internal/policy"
+	"github.com/open-southeners/ki/internal/policy"
 )
 
 const okModel = `{"name":"p","services":{"web":{"image":"nginx"}}}`

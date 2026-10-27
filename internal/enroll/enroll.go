@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/config"
+	"github.com/open-southeners/ki/internal/config"
 )
 
 // Failure reasons carried in Error.Reason.

@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/open-southeners/ki-agent/internal/compose"
-	"github.com/open-southeners/ki-agent/internal/git"
-	"github.com/open-southeners/ki-agent/internal/policy"
-	"github.com/open-southeners/ki-agent/internal/runtime"
-	"github.com/open-southeners/ki-agent/internal/store"
+	"github.com/open-southeners/ki/internal/compose"
+	"github.com/open-southeners/ki/internal/git"
+	"github.com/open-southeners/ki/internal/policy"
+	"github.com/open-southeners/ki/internal/runtime"
+	"github.com/open-southeners/ki/internal/store"
 )
 
 // maxDetail is the longest error detail kept on a deploy.

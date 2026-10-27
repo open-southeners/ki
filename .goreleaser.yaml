@@ -24,9 +24,9 @@ builds:
       - -trimpath
     ldflags: &ldflags
       - -s -w
-      - -X github.com/open-southeners/ki-agent/internal/version.Version={{ .Version }}
-      - -X github.com/open-southeners/ki-agent/internal/version.Commit={{ .Commit }}
-      - -X github.com/open-southeners/ki-agent/internal/version.EnrollURL={{ index .Env "KI_ENROLL_URL" }}
+      - -X github.com/open-southeners/ki/internal/version.Version={{ .Version }}
+      - -X github.com/open-southeners/ki/internal/version.Commit={{ .Commit }}
+      - -X github.com/open-southeners/ki/internal/version.EnrollURL={{ index .Env "KI_ENROLL_URL" }}
 
   - id: ki-agent-alias
     main: ./cmd/ki

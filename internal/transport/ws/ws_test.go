@@ -9,7 +9,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/open-southeners/ki-agent/internal/rpc"
+	"github.com/open-southeners/ki/internal/rpc"
 )
 
 func serve(t *testing.T, opts Options, onConn func(context.Context, rpc.Conn, any)) *httptest.Server {
