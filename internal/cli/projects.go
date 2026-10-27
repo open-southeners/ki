@@ -99,6 +99,7 @@ func newProjectsCmd(f *flags) *cobra.Command {
 		newProjectsDeleteCmd(f),
 		newProjectsEnvCmd(f),
 		newProjectsComposeCmd(f),
+		newProjectsImageCmd(f),
 		newProjectsExposeCmd(f),
 		newProjectsUnexposeCmd(f),
 	)
@@ -147,11 +148,12 @@ func newProjectsCreateCmd(f *flags) *cobra.Command {
 	var (
 		slug, branch, tags, compose, composeFile string
 		tok                                      tokenFlags
+		img                                      imageFlags
 		asJSON                                   bool
 	)
 	cmd := &cobra.Command{
-		Use:   "create <git-url> | <slug> --compose-file <file>",
-		Short: "Create a project from a Git repository or a Compose file",
+		Use:   "create <git-url> | <slug> --compose-file <file> | <slug> --image <ref>",
+		Short: "Create a project from a Git repository, a Compose file or an image",
 		Long: `Create a project from a Git repository.
 
 For SSH URLs the agent generates a deploy key; add its public key to the
@@ -161,9 +163,31 @@ For private HTTPS repositories pass an access token on standard input
 
 With --compose-file the argument is the project slug and the project is
 created from that Compose file ("-" reads standard input) instead of a Git
-repository; see "ki-agent projects compose".`,
+repository; see "ki-agent projects compose".
+
+With --image the argument is the project slug and the agent generates a
+Compose file for that one image (a pinned tag or digest, not "latest"):
+--port publishes the container port, --domain (repeatable, needs --port) and
+--path expose it, --volume name:/path[:ro] mounts named volumes and --env
+KEY=VALUE sets plain variables (use "projects env" for secrets). Release new
+tags with "ki-agent projects image set".`,
+		Example: `  ki-agent projects create https://github.com/acme/web.git
+  ki-agent projects create site --compose-file compose.yaml
+  ki-agent projects create app --image registry.example.com/team/app:1.2.3 \
+      --port 8080 --domain app.example.com --volume data:/app/data`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if img.image != "" && composeFile != "" {
+				return errors.New("--image and --compose-file cannot be combined")
+			}
+			if img.image != "" {
+				return createImageProject(cmd, f, args[0], &img, asJSON)
+			}
+			for _, n := range []string{"service", "port", "domain", "path", "volume", "env"} {
+				if cmd.Flags().Changed(n) {
+					return fmt.Errorf("--%s needs --image", n)
+				}
+			}
 			if composeFile != "" {
 				return createComposeProject(cmd, f, args[0], composeFile, asJSON)
 			}
@@ -216,6 +240,13 @@ repository; see "ki-agent projects compose".`,
 	cmd.Flags().StringVar(&tags, "tags", "", "deploy tags matching this `glob` instead of a branch")
 	cmd.Flags().StringVar(&compose, "compose", "", "Compose file `path` inside the repository (default: auto-detect)")
 	cmd.Flags().StringVar(&composeFile, "compose-file", "", "create a Compose project from this `file` (- for standard input); the argument is the slug")
+	cmd.Flags().StringVar(&img.image, "image", "", "create an image project from this `reference` (with a tag or digest); the argument is the slug")
+	cmd.Flags().StringVar(&img.service, "service", "", "with --image, the service `name` (default: app)")
+	cmd.Flags().IntVar(&img.port, "port", 0, "with --image, the container `port` to publish")
+	cmd.Flags().StringSliceVar(&img.domains, "domain", nil, "with --image, a `domain` to serve the port on (repeatable; needs --port)")
+	cmd.Flags().StringVar(&img.path, "path", "", "with --image, serve under this URL `path` prefix")
+	cmd.Flags().StringArrayVar(&img.volumes, "volume", nil, "with --image, a named volume `name:/path[:ro]` (repeatable)")
+	cmd.Flags().StringArrayVar(&img.env, "env", nil, "with --image, a plain variable `KEY=VALUE` (repeatable)")
 	cmd.MarkFlagsMutuallyExclusive("branch", "tags")
 	tok.register(cmd)
 	addJSONFlag(cmd, &asJSON)
