@@ -1,7 +1,7 @@
 [Unit]
 Description=ki-agent update helper
 # Started by ki-agent-update.path, never at boot. It runs as root because it
-# replaces /usr/local/bin/ki-agent and restarts ki-agent.service, which the
+# replaces /usr/local/bin/ki (ki-agent links to it) and restarts ki-agent.service, which the
 # agent itself (an unprivileged user) cannot do. It reads the request file the
 # agent wrote and verifies the release before touching anything.
 After=network-online.target
@@ -10,7 +10,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
-ExecStart=/usr/local/bin/ki-agent update --from-request
+ExecStart=/usr/local/bin/ki agent update --from-request
 TimeoutStartSec=15min
 
 # /var/lib/ki-agent-update (previous binary, database backups) is managed by systemd.

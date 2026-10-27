@@ -18,7 +18,14 @@ DEFAULT_BASE_URL="https://github.com/open-southeners/ki-agent/releases"
 SIGN_IDENTITY_REGEXP='^https://github\.com/open-southeners/ki-agent/\.github/workflows/release\.yml@refs/tags/v'
 SIGN_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
-BIN_PATH="/usr/local/bin/ki-agent"
+# Current releases ship one binary, ki; /usr/local/bin/ki-agent is a symlink to
+# it so units and scripts from before the rename keep working. Older releases
+# ship only ki-agent, whose commands have no "agent" prefix: installing one sets
+# BIN_PATH to LEGACY_BIN_PATH, AGENT_ARG to "" and AGENT_HINT to "ki-agent".
+BIN_PATH="/usr/local/bin/ki"
+LEGACY_BIN_PATH="/usr/local/bin/ki-agent"
+AGENT_ARG="agent"
+AGENT_HINT="ki agent"
 UNIT_DIR="/etc/systemd/system"
 UNIT_PATH="$UNIT_DIR/ki-agent.service"
 UPDATE_PATH_UNIT="ki-agent-update.path"
@@ -38,7 +45,7 @@ Options:
   --version vX.Y.Z   Install this release (default: latest).
   --with-docker      Install Docker Engine (via https://get.docker.com) if it
                      or the compose plugin is missing.
-  --enroll [URL]     After installing, run "ki-agent enroll [URL]" to connect
+  --enroll [URL]     After installing, run "ki agent enroll [URL]" to connect
                      this server to a control plane.
   --no-edge          Disable the managed reverse proxy (edge) in a newly
                      written config (edge.enabled: false). By default the
@@ -47,7 +54,7 @@ Options:
                      Expose the server through a Cloudflare Tunnel: a newly
                      written config gets edge.mode: behind and
                      tunnel.enabled: true, and after the service starts the
-                     token in FILE is stored with "ki-agent tunnel configure".
+                     token in FILE is stored with "ki agent tunnel configure".
                      Create the tunnel in the Cloudflare dashboard first and
                      point its public hostnames at http://localhost:8480.
                      With an existing config only the token is stored; set
@@ -217,16 +224,16 @@ wait_for_socket() {
 # fails the install: with an admin already present it prints a hint instead.
 setup_panel() {
 	if ! wait_for_socket; then
-		warn "the agent socket did not appear; create the panel admin later with: ki-agent panel setup"
+		warn "the agent socket did not appear; create the panel admin later with: $AGENT_HINT panel setup"
 		return 0
 	fi
-	if panel_out=$("$BIN_PATH" panel setup 2>&1); then
+	if panel_out=$("$BIN_PATH" $AGENT_ARG panel setup 2>&1); then
 		log "open this link to create the panel admin (password and authenticator app):"
 		printf '%s\n' "$panel_out"
 	elif printf '%s' "$panel_out" | grep -q 'admin exists'; then
-		log "the panel already has an admin; to issue a new setup link run: ki-agent users reset <username>"
+		log "the panel already has an admin; to issue a new setup link run: $AGENT_HINT users reset <username>"
 	else
-		warn "could not create the panel setup link ($panel_out); run later: ki-agent panel setup"
+		warn "could not create the panel setup link ($panel_out); run later: $AGENT_HINT panel setup"
 	fi
 	return 0
 }
@@ -384,9 +391,20 @@ main() {
 
 	mkdir "$TMPDIR_KI/extract"
 	tar -xzf "$TMPDIR_KI/$archive" -C "$TMPDIR_KI/extract"
-	for f in ki-agent ki-agent.service config.example.yaml; do
+	for f in ki-agent.service config.example.yaml; do
 		[ -f "$TMPDIR_KI/extract/$f" ] || die "archive is missing $f"
 	done
+	# New archives carry ki (and a ki-agent copy); older ones only ki-agent.
+	if [ -f "$TMPDIR_KI/extract/ki" ]; then
+		new_layout=1
+	elif [ -f "$TMPDIR_KI/extract/ki-agent" ]; then
+		new_layout=0
+		BIN_PATH=$LEGACY_BIN_PATH
+		AGENT_ARG=""
+		AGENT_HINT="ki-agent"
+	else
+		die "archive is missing ki"
+	fi
 
 	# Everything below changes the system; the download is verified.
 	if [ "$need_docker" -eq 1 ]; then
@@ -418,11 +436,20 @@ main() {
 	fi
 
 	upgrade=0
-	if [ -e "$BIN_PATH" ]; then
+	if [ -e "$BIN_PATH" ] || [ -L "$BIN_PATH" ] || [ -e "$LEGACY_BIN_PATH" ]; then
 		upgrade=1
 	fi
 	mkdir -p "$(dirname "$BIN_PATH")"
-	replace_file "$TMPDIR_KI/extract/ki-agent" "$BIN_PATH" 0755
+	if [ "$new_layout" -eq 1 ]; then
+		replace_file "$TMPDIR_KI/extract/ki" "$BIN_PATH" 0755
+		# Replace a plain ki-agent file from a 1.0.x install (or an older
+		# link) with a symlink, atomically.
+		_link="$LEGACY_BIN_PATH.new.$$"
+		ln -s ki "$_link"
+		mv -f "$_link" "$LEGACY_BIN_PATH"
+	else
+		replace_file "$TMPDIR_KI/extract/ki-agent" "$BIN_PATH" 0755
+	fi
 	installed_version=$("$BIN_PATH" version 2>&1 | head -n 1) || installed_version=""
 
 	mkdir -p "$(dirname "$UNIT_PATH")"
@@ -521,15 +548,15 @@ main() {
 			fi
 		fi
 	else
-		warn "systemd is not running; start the agent yourself with: $BIN_PATH run"
+		warn "systemd is not running; start the agent yourself with: $BIN_PATH $AGENT_ARG run"
 	fi
 
-	log "installed ${installed_version:-ki-agent}"
+	log "installed ${installed_version:-$AGENT_HINT}"
 	log "service: $service_state; config: $config_note"
 	if [ -n "$add_user" ]; then
-		log "log out and back in so $add_user can use the ki-agent CLI (group $SVC_GROUP)"
+		log "log out and back in so $add_user can use the ki CLI (group $SVC_GROUP)"
 	else
-		log "users must be in the $SVC_GROUP group to use the ki-agent CLI: usermod -aG $SVC_GROUP <user>"
+		log "users must be in the $SVC_GROUP group to use the ki CLI: usermod -aG $SVC_GROUP <user>"
 	fi
 
 	if has_systemd && [ "$no_start" -eq 0 ] && ! panel_disabled; then
@@ -538,30 +565,30 @@ main() {
 
 	if [ -n "$tunnel_token_file" ]; then
 		if ! has_systemd; then
-			warn "skipping the tunnel token: the service is not running; run later: ki-agent tunnel configure --token-file FILE"
+			warn "skipping the tunnel token: the service is not running; run later: $AGENT_HINT tunnel configure --token-file FILE"
 		else
 			wait_for_socket || true
-			if "$BIN_PATH" tunnel configure --token-file "$tunnel_token_file" >/dev/null; then
-				log "stored the Cloudflare Tunnel token; check it with: ki-agent tunnel status"
+			if "$BIN_PATH" $AGENT_ARG tunnel configure --token-file "$tunnel_token_file" >/dev/null; then
+				log "stored the Cloudflare Tunnel token; check it with: $AGENT_HINT tunnel status"
 			else
-				warn "could not store the tunnel token; run later: ki-agent tunnel configure --token-file FILE"
+				warn "could not store the tunnel token; run later: $AGENT_HINT tunnel configure --token-file FILE"
 			fi
 		fi
 	fi
 
 	if [ "$do_enroll" -eq 1 ]; then
 		if ! has_systemd; then
-			warn "skipping enrollment: the service is not running; run later: ki-agent enroll"
+			warn "skipping enrollment: the service is not running; run later: $AGENT_HINT enroll"
 		else
 			wait_for_socket || true
 			if [ -n "$enroll_url" ]; then
-				attached "$BIN_PATH" enroll "$enroll_url"
+				attached "$BIN_PATH" $AGENT_ARG enroll "$enroll_url"
 			else
-				attached "$BIN_PATH" enroll
+				attached "$BIN_PATH" $AGENT_ARG enroll
 			fi
 		fi
 	else
-		log "next: ki-agent projects create <git-url>   or   ki-agent enroll [url]"
+		log "next: $AGENT_HINT projects create <git-url>   or   $AGENT_HINT enroll [url]"
 	fi
 }
 

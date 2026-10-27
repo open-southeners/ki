@@ -9,9 +9,27 @@ before:
     # The panel is embedded into the binary, so build it first.
     - sh -c "cd web && bun install --frozen-lockfile && bun run build"
 
+# One binary, shipped under two names: `ki` is the CLI and `ki-agent` is the
+# same program for units and scripts that predate the rename (invoked as
+# ki-agent it behaves like `ki agent`). Both are regular files in the archive.
 builds:
-  - id: ki-agent
-    main: ./cmd/ki-agent
+  - id: ki
+    main: ./cmd/ki
+    binary: ki
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags: &ldflags
+      - -s -w
+      - -X github.com/open-southeners/ki-agent/internal/version.Version={{ .Version }}
+      - -X github.com/open-southeners/ki-agent/internal/version.Commit={{ .Commit }}
+      - -X github.com/open-southeners/ki-agent/internal/version.EnrollURL={{ index .Env "KI_ENROLL_URL" }}
+
+  - id: ki-agent-alias
+    main: ./cmd/ki
     binary: ki-agent
     env:
       - CGO_ENABLED=0
@@ -19,15 +37,12 @@ builds:
     goarch: [amd64, arm64]
     flags:
       - -trimpath
-    ldflags:
-      - -s -w
-      - -X github.com/open-southeners/ki-agent/internal/version.Version={{ .Version }}
-      - -X github.com/open-southeners/ki-agent/internal/version.Commit={{ .Commit }}
-      - -X github.com/open-southeners/ki-agent/internal/version.EnrollURL={{ index .Env "KI_ENROLL_URL" }}
+    ldflags: *ldflags
 
 # No version in the archive name, so releases/latest/download/<name> works.
 archives:
   - id: ki-agent
+    ids: [ki, ki-agent-alias]
     formats: [tar.gz]
     name_template: "ki-agent_{{ .Os }}_{{ .Arch }}"
     files:

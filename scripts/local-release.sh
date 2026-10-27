@@ -65,14 +65,17 @@ for arch in amd64 arm64; do
 	mkdir -p "$stage"
 	CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
 		-ldflags "-s -w -X $pkg.Version=$version -X $pkg.Commit=$commit -X $pkg.EnrollURL=${KI_ENROLL_URL:-}" \
-		-o "$stage/ki-agent" ./cmd/ki-agent
+		-o "$stage/ki" ./cmd/ki
+	# The same binary under the pre-rename name, as a regular file like the
+	# goreleaser archives (install.sh links /usr/local/bin/ki-agent to ki).
+	cp "$stage/ki" "$stage/ki-agent"
 	cp LICENSE README.md "$stage/"
 	cp packaging/systemd/ki-agent.service "$stage/ki-agent.service"
 	cp packaging/systemd/ki-agent-update.service packaging/systemd/ki-agent-update.path "$stage/"
 	cp packaging/config.example.yaml "$stage/config.example.yaml"
 	# Same layout as the goreleaser archives: files at the archive root.
 	tar -czf "$out/ki-agent_linux_$arch.tar.gz" -C "$stage" \
-		ki-agent LICENSE README.md ki-agent.service ki-agent-update.service ki-agent-update.path config.example.yaml
+		ki ki-agent LICENSE README.md ki-agent.service ki-agent-update.service ki-agent-update.path config.example.yaml
 done
 
 cp install.sh "$out/install.sh"

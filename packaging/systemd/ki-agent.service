@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/ki-agent run
+# /usr/local/bin/ki-agent is a symlink to ki, kept for older tooling.
+ExecStart=/usr/local/bin/ki agent run
 User=ki-agent
 Group=ki-agent
 Restart=on-failure
