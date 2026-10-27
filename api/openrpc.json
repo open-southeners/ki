@@ -2230,6 +2230,46 @@
       ]
     },
     {
+      "name": "updates.status",
+      "x-role": "viewer",
+      "summary": "Report the running version, the latest known release and the state of a requested update.",
+      "description": "Always available (capability updates). Answers from the cache of the periodic release check (every few hours, against GitHub Releases); with updates.check false in the config GitHub is never contacted and latest stays null. update_available is false for source builds (current dev). apply_supported tells whether the root helper (ki-agent-update.path) is installed. state is requested from updates.apply until the helper reports a result; last_result is the outcome of the most recent update attempt.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/UpdateStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" }
+      ]
+    },
+    {
+      "name": "updates.check",
+      "x-role": "admin",
+      "summary": "Look for a new release now.",
+      "description": "Contacts GitHub at most once per 60 seconds; within that window, while rate limited and when checks are disabled it returns the cached status. A failed check is reported in check_error of the result, not as an error.",
+      "paramStructure": "by-name",
+      "params": [],
+      "result": { "name": "status", "schema": { "$ref": "#/components/schemas/UpdateStatus" } },
+      "errors": [
+        { "$ref": "#/components/errors/HandshakeRequired" }
+      ]
+    },
+    {
+      "name": "updates.apply",
+      "x-role": "admin",
+      "summary": "Ask the root helper to install the latest release (panel sessions only).",
+      "description": "Only a panel session (a signed-in user over the WebSocket) may call this; API tokens, the local socket and the control plane are refused with Unauthorized (\"updates are installed from the panel or with sudo ki-agent update\"). version must equal latest.tag of updates.status and update_available must be true, apply_supported must be true and no update may be in progress, otherwise InvalidParams. The agent writes a request file and the root helper downloads, verifies (ed25519 signature, sha256), installs and restarts the agent, rolling back when the new version does not come up; poll updates.status (state, last_result) for the outcome. The call is audited.",
+      "paramStructure": "by-name",
+      "params": [
+        { "name": "version", "description": "Release tag to install, such as v0.4.0.", "required": true, "schema": { "type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$" } }
+      ],
+      "result": { "name": "request", "schema": { "$ref": "#/components/schemas/UpdateRequested" } },
+      "errors": [
+        { "$ref": "#/components/errors/Unauthorized" },
+        { "$ref": "#/components/errors/HandshakeRequired" },
+        { "$ref": "#/components/errors/InvalidParams" }
+      ]
+    },
+    {
       "name": "edge.status",
       "x-role": "viewer",
       "summary": "Report the state of the edge proxy.",
@@ -3599,6 +3639,57 @@
           "image": { "type": "string" },
           "last_error": { "type": "string" },
           "warnings": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "UpdateRelease": {
+        "type": "object",
+        "description": "A GitHub release of the agent.",
+        "required": ["tag", "name", "published_at", "url", "notes", "prerelease"],
+        "properties": {
+          "tag": { "type": "string", "description": "Release tag, such as v0.4.0." },
+          "name": { "type": "string" },
+          "published_at": { "type": "string", "format": "date-time" },
+          "url": { "type": "string", "description": "Release page on GitHub." },
+          "notes": { "type": "string", "description": "Release notes (Markdown, capped at 64 KiB). Show as plain text." },
+          "prerelease": { "type": "boolean" }
+        }
+      },
+      "UpdateResult": {
+        "type": "object",
+        "description": "Outcome of an update attempt, written by the root helper.",
+        "required": ["id", "status", "from", "to", "started_at", "finished_at"],
+        "properties": {
+          "id": { "type": "string", "description": "Id of the request it answers (a random id for updates run from the command line)." },
+          "status": { "type": "string", "enum": ["succeeded", "failed", "rolled_back"], "description": "failed: nothing was changed. rolled_back: the new version did not come up and the previous binary and database were restored." },
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "finished_at": { "type": "string", "format": "date-time" },
+          "error": { "type": "string", "description": "Why the update failed or was rolled back. Absent on success." }
+        }
+      },
+      "UpdateStatus": {
+        "type": "object",
+        "required": ["current", "channel", "check_enabled", "checked_at", "check_error", "latest", "update_available", "apply_supported", "state", "last_result"],
+        "properties": {
+          "current": { "type": "string", "description": "Running version; dev in source builds." },
+          "channel": { "type": "string", "enum": ["stable", "prerelease"], "description": "updates.channel." },
+          "check_enabled": { "type": "boolean", "description": "updates.check." },
+          "checked_at": { "type": ["string", "null"], "format": "date-time", "description": "When GitHub was last contacted, null if never." },
+          "check_error": { "type": ["string", "null"], "description": "Why the last check failed, null if it succeeded." },
+          "latest": { "oneOf": [{ "$ref": "#/components/schemas/UpdateRelease" }, { "type": "null" }], "description": "The newest release on the channel, null if unknown." },
+          "update_available": { "type": "boolean", "description": "latest is newer than current by semantic version; always false for dev builds." },
+          "apply_supported": { "type": "boolean", "description": "The root helper unit ki-agent-update.path is installed, so updates.apply can work." },
+          "state": { "type": "string", "enum": ["idle", "requested"], "description": "requested: updates.apply wrote the request and the helper has not reported a result yet (10 minutes at most)." },
+          "last_result": { "oneOf": [{ "$ref": "#/components/schemas/UpdateResult" }, { "type": "null" }] }
+        }
+      },
+      "UpdateRequested": {
+        "type": "object",
+        "required": ["id", "state"],
+        "properties": {
+          "id": { "type": "string", "description": "Id of the request; last_result.id matches it once the helper is done." },
+          "state": { "type": "string", "enum": ["requested"] }
         }
       },
       "EdgeStatus": {

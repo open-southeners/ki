@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/server"
 	"github.com/open-southeners/ki-agent/internal/store"
 	"github.com/open-southeners/ki-agent/internal/tunnel"
+	"github.com/open-southeners/ki-agent/internal/update"
 	"github.com/open-southeners/ki-agent/internal/version"
 	"github.com/open-southeners/ki-agent/internal/webhooks"
 )
@@ -92,6 +94,7 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 		{filepath.Join(cfg.DataDir, "projects"), 0o750},
 		{filepath.Join(cfg.DataDir, "git", "home"), 0o750},
 		{filepath.Join(cfg.DataDir, "deploys"), 0o700},
+		{filepath.Join(cfg.DataDir, "update"), 0o750},
 	} {
 		if err := os.MkdirAll(d.path, d.perm); err != nil {
 			return fmt.Errorf("create data dir: %w", err)
@@ -231,6 +234,23 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 	edgeHandlers.Register(router)
 	tunnel.NewHandlers(tunnelMgr, logger).Register(router)
+	updateDir := filepath.Join(cfg.DataDir, "update")
+	updateChecker := update.NewChecker(update.CheckerOptions{
+		Dir: updateDir, Current: version.Version, Channel: cfg.Updates.Channel, Enabled: cfg.Updates.Check, Logger: logger,
+	})
+	updateHandlers := update.NewHandlers(update.HandlerOptions{
+		Source: updateChecker, Dir: updateDir, Logger: logger,
+		Audit: func(ctx context.Context, event, target, result string) {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			e := &store.AuditEntry{PrincipalKind: "system", PrincipalName: "ki-agent-update",
+				Event: event, Target: target, Result: result}
+			if err := db.AppendAudit(ctx, e); err != nil {
+				logger.Warn("append audit", "event", event, "err", err)
+			}
+		},
+	})
+	updateHandlers.Register(router)
 	acc := accounts.New(accounts.Options{
 		Store: db, Secret: box, Logger: logger,
 		SetupBase: setupBase(cfg, edgeMgr.ServerHostnames,
@@ -290,6 +310,18 @@ func runAgent(ctx context.Context, logOut io.Writer, f *flags, configExplicit bo
 	}
 
 	monMgr.Start(ctx)
+
+	// Stopped (and waited for) before the store closes: the result audit
+	// writes to it.
+	updCtx, stopUpd := context.WithCancel(ctx)
+	var updWG sync.WaitGroup
+	updWG.Add(2)
+	go func() { defer updWG.Done(); updateChecker.Run(updCtx) }()
+	go func() { defer updWG.Done(); updateHandlers.Run(updCtx) }()
+	defer func() {
+		stopUpd()
+		updWG.Wait()
+	}()
 
 	if webhookListen != "" {
 		ln, err := net.Listen("tcp", webhookListen)

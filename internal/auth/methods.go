@@ -32,6 +32,7 @@ var MethodRoles = map[string]Role{
 	"edge.status":                  RoleViewer,
 	"aws.status":                   RoleViewer,
 	"tunnel.status":                RoleViewer,
+	"updates.status":               RoleViewer,
 	"auth.whoami":                  RoleViewer,
 
 	// operator
@@ -65,6 +66,8 @@ var MethodRoles = map[string]Role{
 	"edge.certificate.import":  RoleAdmin,
 	"tunnel.configure":         RoleAdmin,
 	"tunnel.remove":            RoleAdmin,
+	"updates.check":            RoleAdmin,
+	"updates.apply":            RoleAdmin,
 	"enrollment.start":         RoleAdmin,
 	"enrollment.wait":          RoleAdmin,
 	"enrollment.remove":        RoleAdmin,

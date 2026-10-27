@@ -18,6 +18,7 @@ import (
 	"github.com/open-southeners/ki-agent/internal/projects"
 	"github.com/open-southeners/ki-agent/internal/rpc"
 	"github.com/open-southeners/ki-agent/internal/tunnel"
+	"github.com/open-southeners/ki-agent/internal/update"
 )
 
 // This test lives in an external package because the enrollment handlers
@@ -104,6 +105,7 @@ func TestSpecMatchesRouter(t *testing.T) {
 	deploys.NewHandlers(nil).Register(r)
 	edge.NewHandlers(nil, "", nil).Register(r)
 	tunnel.NewHandlers(nil, nil).Register(r)
+	update.NewHandlers(update.HandlerOptions{}).Register(r)
 	enrollment.New(enrollment.Options{}).Register(r)
 	accounts.New(accounts.Options{}).Register(r)
 	monitor.NewManager(monitor.Options{}).Register(r)
