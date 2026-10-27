@@ -57,6 +57,9 @@ export function createApi(rpc: RpcClient) {
       services: m("projects.services"),
       serviceStart: m("projects.services.start"),
       serviceStop: m("projects.services.stop"),
+      composeGet: m("projects.compose.get"),
+      composeSet: m("projects.compose.set"),
+      composeHistory: m("projects.compose.history"),
       serviceRestart: m("projects.services.restart"),
     },
     deploys: {

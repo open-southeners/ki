@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rocket, Undo2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -19,7 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { isTerminal } from "@/lib/api";
 import { useCan } from "@/lib/auth-context";
-import { toastError } from "@/lib/errors";
+import { composeRef } from "@/lib/compose";
+import { errorMessage, toastError } from "@/lib/errors";
 import { formatRelative, shortSha } from "@/lib/format";
 import { useApi } from "@/lib/rpc-context";
 import type { Deploy } from "@/lib/types";
@@ -29,7 +30,7 @@ import { deployErrorText, deployStatusBadge, previousGood, rollbackTargets } fro
 
 const PAGE = 20;
 
-export function DeploysTab({ slug, ready }: { slug: string; ready: boolean }) {
+export function DeploysTab({ slug, ready, compose = false }: { slug: string; ready: boolean; compose?: boolean }) {
   const api = useApi();
   const canOperate = useCan("operator");
   const q = useInfiniteQuery({
@@ -140,7 +141,7 @@ export function DeploysTab({ slug, ready }: { slug: string; ready: boolean }) {
       </Card>
 
       <DeployDetailSheet deploy={selected} onClose={() => setSelectedId(null)} />
-      <DeployNowDialog slug={slug} open={nowOpen} onOpenChange={setNowOpen} onStarted={opened} />
+      <DeployNowDialog slug={slug} compose={compose} open={nowOpen} onOpenChange={setNowOpen} onStarted={opened} />
       <RollbackDialog slug={slug} deploys={deploys} open={rollbackOpen} onOpenChange={setRollbackOpen} onStarted={opened} />
     </div>
   );
@@ -148,11 +149,13 @@ export function DeploysTab({ slug, ready }: { slug: string; ready: boolean }) {
 
 function DeployNowDialog({
   slug,
+  compose,
   open,
   onOpenChange,
   onStarted,
 }: {
   slug: string;
+  compose: boolean;
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onStarted: (d: Deploy) => void;
@@ -160,9 +163,17 @@ function DeployNowDialog({
   const api = useApi();
   const qc = useQueryClient();
   const [ref, setRef] = React.useState("");
+  const history = useQuery({
+    queryKey: ["compose", slug, "history"],
+    queryFn: () => api.projects.composeHistory({ slug, limit: 50 }),
+    enabled: compose && open,
+  });
+  // Compose projects deploy a stored version; default to the newest.
+  const versions = history.data ?? [];
+  const chosen = ref || (versions[0] ? composeRef(versions[0].version) : "");
   const [error, setError] = React.useState<string | null>(null);
   const m = useMutation({
-    mutationFn: () => api.deploys.trigger({ project: slug, ref: ref.trim() || undefined }),
+    mutationFn: () => api.deploys.trigger({ project: slug, ref: (compose ? chosen : ref.trim()) || undefined }),
     onMutate: () => setError(null),
     onSuccess: async (d) => {
       toast.success(`Deploy #${d.id} queued`);
@@ -191,9 +202,39 @@ function DeployNowDialog({
           <DialogHeader>
             <DialogTitle>Deploy now</DialogTitle>
             <DialogDescription>
-              Builds and starts the project from its tracked branch, or from a specific branch, tag or commit.
+              {compose
+                ? "Builds and starts the project from a stored compose version."
+                : "Builds and starts the project from its tracked branch, or from a specific branch, tag or commit."}
             </DialogDescription>
           </DialogHeader>
+          {compose ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="deploy-version">Compose version</Label>
+              <Select value={chosen} onValueChange={setRef}>
+                <SelectTrigger id="deploy-version">
+                  <SelectValue placeholder={history.isPending ? "Loading…" : "No versions"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {versions.map((v) => (
+                    <SelectItem key={v.version} value={composeRef(v.version)}>
+                      v{v.version} · {formatRelative(v.created_at)}
+                      {v.note ? ` · ${v.note}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {history.isError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {errorMessage(history.error)}
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+            </div>
+          ) : (
           <div className="grid gap-1.5">
             <Label htmlFor="deploy-ref">Ref (optional)</Label>
             <Input
@@ -213,11 +254,12 @@ function DeployNowDialog({
               </p>
             )}
           </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={m.isPending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={m.isPending}>
+            <Button type="submit" disabled={m.isPending || (compose && !chosen)}>
               {m.isPending ? "Starting…" : "Deploy"}
             </Button>
           </DialogFooter>

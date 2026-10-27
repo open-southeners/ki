@@ -2,6 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { composeLabel } from "@/lib/compose";
 import { formatRelative, shortSha } from "@/lib/format";
 import { useApi } from "@/lib/rpc-context";
 import type { Deploy, Project, ProjectService } from "@/lib/types";
@@ -49,6 +50,7 @@ export function useProjectRows() {
 }
 
 function triggerText(p: Project): string {
+  if (p.source === "compose") return composeLabel(p);
   if (p.trigger.tag_pattern) return `tags ${p.trigger.tag_pattern}`;
   return p.trigger.branch || p.default_branch || "–";
 }
@@ -109,7 +111,7 @@ export function ProjectsTable({ compact = false }: { compact?: boolean }) {
               </TableCell>
             )}
             <TableCell>
-              <Mono>{shortSha(p.commit)}</Mono>
+              <Mono>{p.source === "compose" ? "–" : shortSha(p.commit)}</Mono>
             </TableCell>
             <TableCell>
               {lastDeploy === undefined ? (

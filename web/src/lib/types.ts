@@ -219,6 +219,10 @@ export interface Exposure {
 
 export interface Project {
   slug: string;
+  /** "compose" projects are defined by versioned compose content, not a repository. */
+  source: "git" | "compose";
+  /** Newest compose version; compose projects only. */
+  compose_version?: number;
   repo_url: string;
   trigger: ProjectTrigger;
   default_branch: string;
@@ -254,6 +258,29 @@ export interface EnvNames {
 export interface EnvVarInfo {
   name: string;
   updated_at: Timestamp;
+}
+
+export interface ComposeVersion {
+  version: number;
+  content: string;
+  created_at: Timestamp;
+  created_by: string;
+  note?: string;
+}
+
+export interface ComposeHistoryEntry {
+  version: number;
+  created_at: Timestamp;
+  created_by: string;
+  note?: string;
+  deployed: boolean;
+}
+
+/** data of a -32602 error from projects.compose.set. */
+export interface ComposeInvalidData {
+  reason: string;
+  detail: string;
+  violations?: PolicyViolation[];
 }
 
 export interface ProjectCreateParams {
@@ -540,6 +567,12 @@ export interface MethodMap {
   "projects.services.start": { params: { slug: string; service: string }; result: ProjectService };
   "projects.services.stop": { params: { slug: string; service: string }; result: ProjectService };
   "projects.services.restart": { params: { slug: string; service: string }; result: ProjectService };
+  "projects.compose.get": { params: { slug: string; version?: number }; result: ComposeVersion };
+  "projects.compose.set": {
+    params: { slug: string; compose: string; note?: string; deploy?: boolean };
+    result: { version: number; deploy?: Deploy };
+  };
+  "projects.compose.history": { params: { slug: string; limit?: number }; result: ComposeHistoryEntry[] };
   "projects.unexpose": { params: { slug: string; service: string }; result: Project };
   "deploys.trigger": { params: { project: string; ref?: string }; result: Deploy };
   "deploys.rollback": { params: { project: string; deploy?: number }; result: Deploy };

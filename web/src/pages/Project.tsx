@@ -8,12 +8,14 @@ import { projectStatusBadge } from "@/components/ops/logic";
 import { ServicesTab } from "@/components/ops/ServicesTab";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { composeLabel } from "@/lib/compose";
 import { shortSha } from "@/lib/format";
 import { useApi } from "@/lib/rpc-context";
 import { RpcError } from "@/lib/rpc";
 import { ErrorCode, type Project as ProjectInfo } from "@/lib/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCan } from "@/lib/auth-context";
+import { ProjectCompose } from "@/pages/admin/ProjectCompose";
 import { ProjectEnv } from "@/pages/admin/ProjectEnv";
 import { ProjectExposure } from "@/pages/admin/ProjectExposure";
 
@@ -48,18 +50,21 @@ function ProjectSummary({ slug }: { slug: string }) {
 
 function SummaryCard({ p }: { p: ProjectInfo }) {
   const trigger = p.trigger.tag_pattern ? `tags ${p.trigger.tag_pattern}` : p.trigger.branch || p.default_branch || "–";
-  const items: Array<[string, React.ReactNode]> = [
-    ["Repository", <Mono key="r" className="break-all">{p.repo_url}</Mono>],
-    ["Trigger", <Mono key="t">{trigger}</Mono>],
-    ["Commit", <Mono key="c">{shortSha(p.commit)}</Mono>],
-    [
-      "Webhook",
-      <span key="w" className="inline-flex items-center gap-1">
-        <Mono className="break-all">{p.webhook.path}</Mono>
-        <CopyButton value={p.webhook.path} label="Webhook path" />
-      </span>,
-    ],
-  ];
+  const items: Array<[string, React.ReactNode]> =
+    p.source === "compose"
+      ? [["Source", <Mono key="s">{composeLabel(p)}</Mono>]]
+      : [
+          ["Repository", <Mono key="r" className="break-all">{p.repo_url}</Mono>],
+          ["Trigger", <Mono key="t">{trigger}</Mono>],
+          ["Commit", <Mono key="c">{shortSha(p.commit)}</Mono>],
+          [
+            "Webhook",
+            <span key="w" className="inline-flex items-center gap-1">
+              <Mono className="break-all">{p.webhook.path}</Mono>
+              <CopyButton value={p.webhook.path} label="Webhook path" />
+            </span>,
+          ],
+        ];
   return (
     <Card className="mb-6 p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -83,10 +88,14 @@ export default function Project() {
   const isAdmin = useCan("admin");
   const [params, setParams] = useSearchParams();
   const wanted = params.get("tab") ?? "services";
-  const tab = (wanted === "env" || wanted === "exposure") && !isAdmin ? "services" : wanted;
-
   const api = useApi();
   const info = useQuery({ queryKey: ["project", slug], queryFn: () => api.projects.get({ slug }) });
+  const isCompose = info.data?.source === "compose";
+  const showCompose = isAdmin && isCompose;
+  const tab =
+    ((wanted === "env" || wanted === "exposure") && !isAdmin) || (wanted === "compose" && !showCompose)
+      ? "services"
+      : wanted;
 
   return (
     <>
@@ -109,6 +118,7 @@ export default function Project() {
         <TabsList aria-label="Project sections">
           <TabsTrigger value="services">Services</TabsTrigger>
           <TabsTrigger value="deploys">Deploys</TabsTrigger>
+          {showCompose && <TabsTrigger value="compose">Compose</TabsTrigger>}
           {isAdmin && <TabsTrigger value="env">Environment</TabsTrigger>}
           {isAdmin && <TabsTrigger value="exposure">Exposure</TabsTrigger>}
         </TabsList>
@@ -116,8 +126,13 @@ export default function Project() {
           <ServicesTab slug={slug} />
         </TabsContent>
         <TabsContent value="deploys">
-          <DeploysTab slug={slug} ready={info.data?.status === "ready"} />
+          <DeploysTab slug={slug} ready={info.data?.status === "ready"} compose={isCompose} />
         </TabsContent>
+        {showCompose && (
+          <TabsContent value="compose">
+            <ProjectCompose slug={slug} ready={info.data?.status === "ready"} />
+          </TabsContent>
+        )}
         {isAdmin && (
           <TabsContent value="env">
             <ProjectEnv slug={slug} />
